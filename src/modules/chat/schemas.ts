@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MessagePartType, MessageRole } from "@/common/enums";
+import { MessagePartType, MessageRole, ToolActionResult } from "@/common/enums";
 
 // Vercel AI SDK useChat sends { messages: UIMessage[] }
 const MessagePartSchema = z.discriminatedUnion("type", [
@@ -17,7 +17,7 @@ const MessagePartSchema = z.discriminatedUnion("type", [
     toolCallId: z.string(),
     toolName: z.string(),
     result: z.unknown(),
-    isApproval: z.boolean().optional(), // Flag to distinguish simple results from user approvals
+    action: z.enum(ToolActionResult).optional(), // Flag to distinguish simple results from user approvals
   })
 ]);
 

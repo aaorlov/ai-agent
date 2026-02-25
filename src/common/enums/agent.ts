@@ -17,3 +17,12 @@ export enum MessagePartType {
   ToolInvocation = "tool-invocation",
   ToolResult = "tool-result",
 }
+
+/**
+ * Tool result action (approved, rejected, cancelled).
+ */
+export enum ToolActionResult {
+  Approved = "approved",
+  Rejected = "rejected",
+  Cancelled = "cancelled",
+}

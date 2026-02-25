@@ -28,6 +28,8 @@ export enum StatusCode {
 export enum FinishReason {
   Stop = "stop",
   Length = "length",
+  ToolCall = "tool-call",
   ContentFilter = "content-filter",
   Error = "error",
+  Abort = "abort",
 }
