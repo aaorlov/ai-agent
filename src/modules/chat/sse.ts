@@ -4,10 +4,10 @@
  */
 
 import type { ChatRequest } from "./schemas";
-import { createInterruptibleGraph, Command, MemorySaver, type AgentState } from "../../agent.js";
+import { createInterruptibleGraph, Command, MemorySaver, type AgentState } from "../../agent";
 import { HumanMessage } from "@langchain/core/messages";
-import { SSEEventType, StatusCode, FinishReason, StatusMessage } from "../../common/enums/sse.js";
-import { MessagePartType, MessageRole, DEFAULT_APPROVE_TOOL_NAME } from "@/common/enums";
+import { SSEEventType, StatusCode, FinishReason, StreamTriggerType } from "../../common/enums/sse";
+import { MessagePartType, MessageRole, ToolActionResult } from "@/common/enums";
 import type { SSEEvent } from "./events.js";
 import { normalizeInterruptToToolCall } from "./events.js";
 import { sseEventToMessage } from "./utils.js";
@@ -15,92 +15,25 @@ import type { SSEStreamingApi } from "hono/streaming";
 
 export type { SSEEvent } from "./events.js";
 
-// ---------------------------------------------------------------------------
-// Enums
-// ---------------------------------------------------------------------------
-
-export enum StreamTriggerType {
-  Message = "message",
-  Approve = "approve",
-  Reject = "reject",
-}
-
-// ---------------------------------------------------------------------------
-// Interfaces
-// ---------------------------------------------------------------------------
-
-export interface ISSEData {
-  event: string;
-  data: string;
-}
-
-export interface ITextPart {
-  type: MessagePartType.Text;
-  text?: string;
-}
-
-export interface IToolResultPart {
-  type: MessagePartType.ToolResult;
-  toolCallId: string;
-  result?: unknown;
-  isApproval?: boolean;
-}
-
-export interface IMessagePart {
-  type: string;
-  text?: string;
-  toolCallId?: string;
-  result?: unknown;
-  isApproval?: boolean;
-}
-
-export interface IChatRequestMessage {
-  role: string;
-  content?: string;
-  parts?: IMessagePart[];
-}
-
-export interface IChatRequestBody {
-  threadId?: string;
-  messages: IChatRequestMessage[];
-}
-
 export interface IMessageTrigger {
   type: StreamTriggerType.Message;
   text: string;
-  threadId: string;
 }
 
-export interface IApproveTrigger {
-  type: StreamTriggerType.Approve;
-  threadId: string;
-  payload?: unknown;
-  toolCallId?: string;
+export interface IToolTrigger {
+  type: StreamTriggerType.Tool;
+  action: ToolActionResult;
+  toolCallId: string;
+  result: unknown;
 }
 
-export interface IRejectTrigger {
-  type: StreamTriggerType.Reject;
-  threadId: string;
-  toolCallId?: string;
+export interface ISystemTrigger {
+  type: StreamTriggerType.System;
+  context: Record<string, unknown> | undefined;
 }
 
-export type StreamTrigger = IMessageTrigger | IApproveTrigger | IRejectTrigger;
+export type StreamTrigger = IMessageTrigger | IToolTrigger | ISystemTrigger;
 
-export interface IResolveChatTriggerResult {
-  trigger: StreamTrigger;
-  threadId: string;
-  isNewThread: boolean;
-}
-
-export interface IHandleChatStreamParams {
-  trigger: StreamTrigger;
-  threadId: string;
-  isNewThread: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// Internal
-// ---------------------------------------------------------------------------
 
 const checkpointer = new MemorySaver();
 const graph = createInterruptibleGraph(checkpointer);
@@ -116,25 +49,34 @@ function hasInterrupt(chunk: unknown): unknown[] | null {
 }
 
 export async function* streamChatEvents(body: ChatRequest, signal: AbortSignal): AsyncGenerator<SSEEvent> {
-  
+  const trigger: StreamTrigger = resolveChatTrigger(body);
+  const config = { configurable: { thread_id: body.threadId }, signal };
 
   try {
+    const input: AgentState = {
+      messages: [new HumanMessage(trigger.text)],
+      sessionId: trigger.threadId,
+      context: {},
+    };
+
+    const stream = await graph.streamEvents(input, {
+      version: "v2", // Always use v2 for the latest schema
+      configurable: { thread_id: body.threadId },
+      signal, // Connects to the UI's stop button
+    });
+
+
     if (trigger.type === StreamTriggerType.Message) {
       const input: AgentState = {
         messages: [new HumanMessage(trigger.text)],
         sessionId: trigger.threadId,
         context: {},
       };
-      const stream = await graph.streamEvents(input, {
-        version: "v2", // Always use v2 for the latest schema
-        configurable: { thread_id: body.threadId },
-        signal, // Connects to the UI's stop button
-      });
+      const stream = await graph.streamEvents(input, { version: "v2", ...config });
 
       let lastSent = "";
       let lastState: AgentState | null = null;
-
-      yield { type: SSEEventType.Status, message: StatusMessage.Planning, code: StatusCode.Thinking };
+      yield { type: SSEEventType.Status, message: "Planning", code: StatusCode.Thinking };
 
       for await (const chunk of stream) {
         const state = chunk as AgentState;
@@ -178,7 +120,7 @@ export async function* streamChatEvents(body: ChatRequest, signal: AbortSignal):
 
       yield {
         type: SSEEventType.Status,
-        message: approved ? StatusMessage.Applying : StatusMessage.Cancelling,
+        message: approved ? "Applying" : "Cancelling",
         code: StatusCode.Executing,
       };
 
@@ -218,12 +160,6 @@ export async function* streamChatEvents(body: ChatRequest, signal: AbortSignal):
         finishReason: approved ? FinishReason.Stop : FinishReason.Error,
       };
     }
-    const stream = await graph.streamEvents(input, {
-      version: "v2", // Always use v2 for the latest schema
-      configurable: { thread_id: body.threadId },
-      signal, // Connects to the UI's stop button
-    });
-    
   } catch (err) {
     yield {
       type: SSEEventType.Error,
@@ -232,39 +168,25 @@ export async function* streamChatEvents(body: ChatRequest, signal: AbortSignal):
   }
 }
 
-/** Detect approval/rejection from last user message parts (Vercel AI SDK tool-result with isApproval). */
-function getApprovalTrigger(body: IChatRequestBody): IApproveTrigger | IRejectTrigger | null {
-  const threadId = body.threadId ?? crypto.randomUUID();
-  const lastUser = body.messages?.filter((m) => m.role === MessageRole.User).pop();
-  const approvalPart = lastUser?.parts?.find(
-    (p) => p.type === MessagePartType.ToolResult && p.isApproval === true
-  ) as IToolResultPart | undefined;
-  if (!approvalPart) return null;
-  const result = approvalPart.result;
-  const rejected =
-    result !== null &&
-    typeof result === "object" &&
-    "approved" in result &&
-    (result as { approved: unknown }).approved === false;
-  return rejected
-    ? { type: StreamTriggerType.Reject, threadId, toolCallId: approvalPart.toolCallId }
-    : { type: StreamTriggerType.Approve, threadId, toolCallId: approvalPart.toolCallId, payload: result };
-}
+/** Resolve trigger, threadId, and isNewThread from validated chat request body. Handles message, approve, and reject. */
+export function resolveChatTrigger(body: ChatRequest): StreamTrigger {
+  if (body.messages.length === 0 && body.context) {
+    return { type: StreamTriggerType.System, context: body.context }
+  }
 
-/** Resolve trigger, threadId, and isNewThread from validated chat request body. */
-export const resolveChatTrigger = (body: ChatRequest): IResolveChatTriggerResult => {
-  const threadId = body.threadId ?? crypto.randomUUID();
-  const isNewThread = !body.threadId;
-  const approvalTrigger = getApprovalTrigger(body);
-  const trigger: StreamTrigger =
-    approvalTrigger ??
-    (() => {
-      const lastUser = body.messages?.filter((m) => m.role === MessageRole.User).pop();
-      const textPart = lastUser?.parts?.find((p) => p.type === MessagePartType.Text) as ITextPart | undefined;
-      const text = (textPart?.text ?? (lastUser?.content ? String(lastUser.content) : "")) || "";
-      return { type: StreamTriggerType.Message, text, threadId };
-    })();
-  return { trigger, threadId, isNewThread };
+  const lastUserMessage = body.messages.filter((m) => m.role === MessageRole.User).pop();
+  const actionPart = lastUserMessage?.parts?.find((p) => p.type === MessagePartType.ToolResult);
+
+  if (actionPart) {
+    return {
+      type: StreamTriggerType.Tool,
+      action: actionPart.action,
+      toolCallId: actionPart.toolCallId,
+      result: actionPart.result
+    }
+  }
+
+  return {type: StreamTriggerType.Message, text: lastUserMessage?.content ?? ""}
 }
 
 /** Run the SSE chat stream: optional session event, then streamChatEvents written as SSE. */

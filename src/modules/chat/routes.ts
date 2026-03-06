@@ -3,7 +3,7 @@ import { streamSSE } from "hono/streaming";
 import { zValidator } from "@hono/zod-validator";
 import { ChatRequestSchema } from "./schemas";
 import { validationError } from "@/common/utils";
-import { resolveChatTrigger, handleChatStream } from "./sse";
+import { handleChatStream } from "./sse";
 
 const chat = new Hono();
 

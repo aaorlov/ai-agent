@@ -16,8 +16,8 @@ const MessagePartSchema = z.discriminatedUnion("type", [
     type: z.literal(MessagePartType.ToolResult),
     toolCallId: z.string(),
     toolName: z.string(),
-    result: z.unknown(),
-    action: z.enum(ToolActionResult).optional(), // Flag to distinguish simple results from user approvals
+    result: z.unknown().optional(),
+    action: z.enum(ToolActionResult), // Flag to distinguish simple results from user approvals
   })
 ]);
 

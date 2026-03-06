@@ -19,10 +19,11 @@ export enum MessagePartType {
 }
 
 /**
- * Tool result action (approved, rejected, cancelled).
+ * Tool result action (approved, rejected, skipped, retried).
  */
 export enum ToolActionResult {
   Approved = "approved",
   Rejected = "rejected",
-  Cancelled = "cancelled",
+  Skipped = "skipped",
+  Retried = "retried",
 }

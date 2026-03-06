@@ -33,3 +33,12 @@ export enum FinishReason {
   Error = "error",
   Abort = "abort",
 }
+
+/**
+ * Stream trigger type for "stream-trigger" events.
+ */
+export enum StreamTriggerType {
+  Message = "message",
+  System = "system",
+  Tool = "tool"
+}
