@@ -1,0 +1,9 @@
+services:
+  api:
+    build: .
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      - ENV=${ENV:-dev}
+      - PORT=8000
+    restart: unless-stopped
