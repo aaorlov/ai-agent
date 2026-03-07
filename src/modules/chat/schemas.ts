@@ -1,8 +1,10 @@
 import { z } from "zod";
-import { MessagePartType, MessageRole } from "@/common/enums";
-import { ToolActionResult } from "@/modules/agent";
+import {
+  MessagePartType,
+  MessageRole,
+  ToolActionResult,
+} from "@/modules/agent";
 
-// Vercel AI SDK useChat sends { messages: UIMessage[] }
 const MessagePartSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal(MessagePartType.Text), text: z.string() }),
   z.object({
@@ -11,7 +13,7 @@ const MessagePartSchema = z.discriminatedUnion("type", [
     toolName: z.string(),
     state: z.string().optional(),
     args: z.unknown().optional(),
-    result: z.unknown().optional()
+    result: z.unknown().optional(),
   }),
   z.object({
     type: z.literal(MessagePartType.ToolResult),
@@ -26,7 +28,7 @@ export const UIMessageSchema = z.object({
   id: z.string(),
   role: z.enum(MessageRole),
   content: z.string(),
-  parts: z.array(MessagePartSchema).optional().default([]),
+  parts: z.array(MessagePartSchema).default([]),
 });
 
 /** Request body for POST /chat: message and optional thread_id (omit for new thread) */

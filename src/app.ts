@@ -55,7 +55,7 @@ app.notFound((c) => {
 // Mount health routes
 app.route("/health", health);
 
-// Chat SSE routes: /chat/stream, /chat/approve, /chat/reject
+// Chat SSE: POST /chat (streaming); supports new thread, continue thread, tool approve/cancel/skip/retry
 app.route("/chat", chat);
 
 // Root endpoint

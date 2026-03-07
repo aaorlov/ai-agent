@@ -1,283 +1,136 @@
 /**
- * SSE chat: stream agent runs via graph.stream(), handle approve/reject/skip via body.messages.
- * Emits: session, status (planning/thinking/executing), text-delta, text-end, tool-call, approval-requested, tool-result, finish, error.
+ * SSE chat: stream agent via graph.stream(), map agent updates to SSE events.
+ * Supports: new thread, continue thread, tool approval (approve/cancel/skip/retry).
  */
 
-import type { ChatRequest } from "./schemas.js";
-import {
-  createInterruptibleGraph,
-  Command,
-  MemorySaver,
-  type AgentState,
-} from "@/modules/agent";
-import { HumanMessage } from "@langchain/core/messages";
-import {
-  SSEEventType,
-  StatusCode,
-  FinishReason,
-  StreamTriggerType,
-} from "@/common/enums/sse.js";
-import { MessagePartType, MessageRole } from "@/common/enums";
-import { ToolActionResult } from "@/modules/agent";
-import type { SSEEvent } from "./events.js";
-import { sseEventToMessage } from "./utils.js";
 import type { SSEStreamingApi } from "hono/streaming";
+import { streamAgent, getThreadState, MessagePartType } from "@/modules/agent";
+import type { AgentMessage, AgentResume, AgentState, AgentRunInput } from "@/modules/agent";
 import { AgentStatusPhase } from "@/modules/agent";
 
-export type { SSEEvent } from "./events.js";
+import type { ChatRequest, UIMessage } from "./schemas.js";
+import type { SSEEvent } from "./events.js";
+import { SSEEventType, StatusCode, FinishReason } from "./events.js";
+import { sseEventToMessage } from "./utils.js";
 
-const DEFAULT_APPROVE_TOOL_NAME = "approval";
+async function toAgentInput(
+  threadId: string,
+  body: ChatRequest
+): Promise<AgentRunInput> {
+  const agentInput: AgentRunInput = {
+    threadId,
+    messages: [],
+  }
 
-export function newThreadId(): string {
-  return crypto.randomUUID();
+  const lastToolResult = body.messages.at(-1)?.parts.find((p) => p.type === MessagePartType.ToolResult);
+  
+  // Agent will use resume command and restore messages from the checkpoint
+  if (lastToolResult) {
+    agentInput.resume = lastToolResult;
+    return agentInput
+  }
+
+  const { values } = await getThreadState(threadId);
+  const existing: AgentMessage[] = values.messages ?? [];
+  agentInput.messages = existing.concat(body.messages.map((m: UIMessage) => ({
+    id: m.id,
+    role: m.role,
+    content: m.content
+  })));
+
+  return agentInput;
 }
 
-export interface IMessageTrigger {
-  type: StreamTriggerType.Message;
-  text: string;
-}
+/** Map agent stream chunk (node name -> partial state update) to zero or more SSE events. */
+function* chunkToSSEEvents(chunk: Record<string, Partial<AgentState>>): Generator<SSEEvent> {
+  for (const u of Object.values(chunk)) {
+    if (!u || typeof u !== "object") continue;
 
-export interface IToolTrigger {
-  type: StreamTriggerType.Tool;
-  action: ToolActionResult;
-  toolCallId: string;
-  result: unknown;
-}
+    switch (u.status) {
+      case AgentStatusPhase.Planning:
+        yield { type: SSEEventType.Status, message: "Planning", code: StatusCode.Planning };
+        break;
+      case AgentStatusPhase.Thinking:
+        yield { type: SSEEventType.Status, message: "Thinking", code: StatusCode.Thinking };
+        break;
+      case AgentStatusPhase.Executing:
+        yield { type: SSEEventType.Status, message: "Executing tool", code: StatusCode.Executing };
+        break;
+      case AgentStatusPhase.ToolResult:
+        yield { type: SSEEventType.Status, message: "Tool result", code: StatusCode.ToolResult };
+        break;
+    }
 
-export interface IApproveTrigger {
-  type: StreamTriggerType.Approve;
-  toolCallId: string;
-  payload?: { approved?: boolean; [k: string]: unknown };
-}
+    if (u.pendingTool) {
+      const pending = u.pendingTool;
+      yield {
+        type: SSEEventType.ApprovalRequested,
+        toolCallId: pending.toolCallId,
+        toolName: pending.toolName,
+        args: pending.args,
+      };
+    }
 
-export interface IRejectTrigger {
-  type: StreamTriggerType.Reject;
-  toolCallId: string;
-  payload?: { approved?: boolean; [k: string]: unknown };
-}
+    if (Array.isArray(u.messages)) {
+      for (const msg of u.messages) {
+        if (msg.toolCallId && msg.toolName) {
+          if (!msg.action) {
+            yield {
+              type: SSEEventType.ToolCall,
+              toolCallId: msg.toolCallId,
+              toolName: msg.toolName,
+              args: msg.args ?? {},
+            };
+          } else {
+            yield {
+              type: SSEEventType.ToolResult,
+              toolCallId: msg.toolCallId,
+              result: msg.result ?? { action: msg.action },
+              action: msg.action,
+            };
+          }
+        }
+        if (msg.content) {
+          yield { type: SSEEventType.TextDelta, content: msg.content };
+          yield { type: SSEEventType.TextEnd };
+        }
+      }
+    }
 
-export interface ISkipTrigger {
-  type: StreamTriggerType.Skip;
-  toolCallId: string;
-}
-
-export interface ISystemTrigger {
-  type: StreamTriggerType.System;
-  context: Record<string, unknown> | undefined;
-}
-
-export type StreamTrigger =
-  | IMessageTrigger
-  | IToolTrigger
-  | IApproveTrigger
-  | IRejectTrigger
-  | ISkipTrigger
-  | ISystemTrigger;
-
-const checkpointer = new MemorySaver();
-const graph = createInterruptibleGraph(checkpointer);
-
-function lastMessageText(state: AgentState): string {
-  const last = state.messages?.[state.messages.length - 1];
-  return last && "content" in last && typeof last.content === "string"
-    ? last.content
-    : "";
-}
-
-function statusPhaseToStatusCode(
-  phase: string | undefined
-): StatusCode | undefined {
-  if (phase === AgentStatusPhase.Planning) return StatusCode.Planning;
-  if (phase === AgentStatusPhase.Thinking) return StatusCode.Thinking;
-  if (phase === AgentStatusPhase.Executing) return StatusCode.Executing;
-  return undefined;
+    if (typeof u.textDelta === "string" && u.textDelta) {
+      yield { type: SSEEventType.TextDelta, content: u.textDelta };
+    }
+  }
 }
 
 export async function* streamChatEvents(
   body: ChatRequest,
+  threadId: string,
   signal: AbortSignal
 ): AsyncGenerator<SSEEvent> {
-  const trigger = resolveChatTrigger(body);
-  const config = {
-    configurable: { thread_id: body.threadId ?? newThreadId() },
-    signal,
-  };
-  const threadId = body.threadId ?? newThreadId();
+  const input = await toAgentInput(threadId, body);
 
   try {
-    // Approve / Reject / Skip: resume the interrupted graph
-    if (
-      trigger.type === StreamTriggerType.Approve ||
-      trigger.type === StreamTriggerType.Reject ||
-      trigger.type === StreamTriggerType.Skip
-    ) {
-      const resumeValue =
-        trigger.type === StreamTriggerType.Approve
-          ? { approved: true, ...trigger.payload }
-          : trigger.type === StreamTriggerType.Skip
-            ? { approved: false, skipped: true }
-            : { approved: false };
-      const stream = graph.stream(new Command({ resume: resumeValue }), config);
-      let lastSent = "";
-      let lastState: AgentState | null = null;
-      const toolCallId =
-        trigger.type === StreamTriggerType.Approve ||
-        trigger.type === StreamTriggerType.Reject
-          ? trigger.toolCallId
-          : (trigger as ISkipTrigger).toolCallId;
-      const approved = trigger.type === StreamTriggerType.Approve;
+    let hadApprovalRequest = false;
 
-      yield {
-        type: SSEEventType.Status,
-        message: approved ? "Applying" : "Skipping / Cancelling",
-        code: StatusCode.Executing,
-      };
-
-      for await (const chunk of stream) {
-        const state = chunk as AgentState;
-        lastState = state;
-        if (state.context?.status) {
-          const code = statusPhaseToStatusCode(state.context.status.phase);
-          yield {
-            type: SSEEventType.Status,
-            message: state.context.status.message ?? state.context.status.phase,
-            code,
-          };
-        }
-        const text = lastMessageText(state);
-        if (text && text !== lastSent) {
-          const content = lastSent ? text.slice(lastSent.length) : text;
-          lastSent = text;
-          if (content) yield { type: SSEEventType.TextDelta, content };
-        }
+    for await (const chunk of streamAgent(input, { signal })) {
+      for (const ev of chunkToSSEEvents(chunk)) {
+        if (ev.type === SSEEventType.ApprovalRequested) hadApprovalRequest = true;
+        yield ev;
       }
-
-      yield { type: SSEEventType.TextEnd };
-      yield {
-        type: SSEEventType.ToolResult,
-        toolCallId,
-        result: lastState?.context ?? (approved ? { applied: true } : { applied: false }),
-      };
-      yield {
-        type: SSEEventType.Finish,
-        finishReason: approved ? FinishReason.Stop : FinishReason.Error,
-      };
-      return;
     }
 
-    // New message or system/tool trigger: run graph from input
-    const input: AgentState = {
-      messages: [
-        new HumanMessage(
-          trigger.type === StreamTriggerType.Message ? trigger.text : ""
-        ),
-      ],
-      sessionId: threadId,
-      context:
-        trigger.type === StreamTriggerType.System ? trigger.context ?? {} : {},
+    yield {
+      type: SSEEventType.Finish,
+      finishReason: hadApprovalRequest ? FinishReason.ToolCall : FinishReason.Stop,
     };
-
-    const stream = graph.stream(input, config);
-    let lastSent = "";
-    let lastState: AgentState | null = null;
-
-    for await (const chunk of stream) {
-      if (signal.aborted) break;
-      const state = chunk as AgentState;
-      lastState = state;
-
-      if (state.context?.status) {
-        const code = statusPhaseToStatusCode(state.context.status.phase);
-        yield {
-          type: SSEEventType.Status,
-          message: state.context.status.message ?? state.context.status.phase,
-          code,
-        };
-      }
-
-      const text = lastMessageText(state);
-      if (text && text !== lastSent) {
-        const content = lastSent ? text.slice(lastSent.length) : text;
-        lastSent = text;
-        if (content) yield { type: SSEEventType.TextDelta, content };
-      }
-    }
-
-    // Stream ended: if we have approvalRequest, graph paused for human-in-the-loop
-    const approvalRequest = lastState?.context?.approvalRequest;
-    if (approvalRequest) {
-      yield {
-        type: SSEEventType.ToolCall,
-        toolCallId: approvalRequest.toolCallId,
-        toolName: approvalRequest.toolName,
-        args: approvalRequest.args,
-      };
-      yield {
-        type: SSEEventType.ApprovalRequested,
-        toolCallId: approvalRequest.toolCallId,
-        toolName: approvalRequest.toolName,
-        args: approvalRequest.args,
-      };
-      return;
-    }
-
-    yield { type: SSEEventType.TextEnd };
-    yield { type: SSEEventType.Finish, finishReason: FinishReason.Stop };
   } catch (err) {
     yield {
       type: SSEEventType.Error,
       message: err instanceof Error ? err.message : "Unknown error",
     };
+    yield { type: SSEEventType.Finish, finishReason: FinishReason.Error };
   }
-}
-
-/** Resolve trigger from validated chat request: message, approve, reject, skip, system, or tool result. */
-export function resolveChatTrigger(body: ChatRequest): StreamTrigger {
-  if (body.messages.length === 0 && body.context) {
-    return { type: StreamTriggerType.System, context: body.context };
-  }
-
-  const lastUserMessage = body.messages
-    .filter((m) => m.role === MessageRole.User)
-    .pop();
-  const actionPart = lastUserMessage?.parts?.find(
-    (p) => p.type === MessagePartType.ToolResult
-  );
-
-  if (actionPart && "action" in actionPart) {
-    const action = actionPart.action as ToolActionResult;
-    if (action === ToolActionResult.Approved) {
-      return {
-        type: StreamTriggerType.Approve,
-        toolCallId: actionPart.toolCallId,
-        payload: actionPart.result as Record<string, unknown> | undefined,
-      };
-    }
-    if (action === ToolActionResult.Rejected) {
-      return {
-        type: StreamTriggerType.Reject,
-        toolCallId: actionPart.toolCallId,
-        payload: actionPart.result as Record<string, unknown> | undefined,
-      };
-    }
-    if (action === ToolActionResult.Skipped) {
-      return {
-        type: StreamTriggerType.Skip,
-        toolCallId: actionPart.toolCallId,
-      };
-    }
-    return {
-      type: StreamTriggerType.Tool,
-      action,
-      toolCallId: actionPart.toolCallId,
-      result: actionPart.result,
-    };
-  }
-
-  return {
-    type: StreamTriggerType.Message,
-    text: lastUserMessage?.content ?? "",
-  };
 }
 
 /** Run the SSE chat stream: optional session event, then streamChatEvents written as SSE. */
@@ -294,9 +147,7 @@ export const handleChatStream = async (
     );
   }
 
-  const enrichedBody = { ...body, threadId };
-
-  for await (const ev of streamChatEvents(enrichedBody, signal)) {
+  for await (const ev of streamChatEvents(body, threadId, signal)) {
     if (signal.aborted) {
       await stream.writeSSE(
         sseEventToMessage({
