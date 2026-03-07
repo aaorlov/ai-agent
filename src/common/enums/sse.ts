@@ -14,9 +14,10 @@ export enum SSEEventType {
 }
 
 /**
- * Status code for "status" events (thinking | executing | timeout).
+ * Status code for "status" events (planning | thinking | executing | timeout).
  */
 export enum StatusCode {
+  Planning = "planning",
   Thinking = "thinking",
   Executing = "executing",
   Timeout = "timeout",
@@ -35,10 +36,13 @@ export enum FinishReason {
 }
 
 /**
- * Stream trigger type for "stream-trigger" events.
+ * Stream trigger type: what initiated the stream (message, approval, reject, etc.).
  */
 export enum StreamTriggerType {
   Message = "message",
   System = "system",
-  Tool = "tool"
+  Tool = "tool",
+  Approve = "approve",
+  Reject = "reject",
+  Skip = "skip",
 }

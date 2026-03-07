@@ -66,9 +66,7 @@ app.get("/", (c) => {
     description: "AI Agent API",
     endpoints: {
       health: "/health",
-      chat: "/chat/stream",
-      chatApprove: "/chat/approve",
-      chatReject: "/chat/reject",
+      chat: "/chat (POST, SSE)",
       docs: "/docs",
       openapi: "/openapi.json",
     },

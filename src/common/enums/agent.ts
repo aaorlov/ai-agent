@@ -1,5 +1,6 @@
 /**
  * Chat message role (system, user, assistant, data, tool).
+ * Shared by chat (UIMessage) and other consumers.
  */
 export enum MessageRole {
   System = "system",
@@ -16,14 +17,4 @@ export enum MessagePartType {
   Text = "text",
   ToolInvocation = "tool-invocation",
   ToolResult = "tool-result",
-}
-
-/**
- * Tool result action (approved, rejected, skipped, retried).
- */
-export enum ToolActionResult {
-  Approved = "approved",
-  Rejected = "rejected",
-  Skipped = "skipped",
-  Retried = "retried",
 }
