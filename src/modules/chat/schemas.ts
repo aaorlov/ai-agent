@@ -1,42 +1,31 @@
 import { z } from "zod";
-import {
-  MessagePartType,
-  MessageRole,
-  ToolActionResult,
-} from "@/modules/agent";
+import { ToolAction } from "@/modules/agent/enums";
 
-const MessagePartSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal(MessagePartType.Text), text: z.string() }),
-  z.object({
-    type: z.literal(MessagePartType.ToolInvocation),
-    toolCallId: z.string(),
-    toolName: z.string(),
-    state: z.string().optional(),
-    args: z.unknown().optional(),
-    result: z.unknown().optional(),
-  }),
-  z.object({
-    type: z.literal(MessagePartType.ToolResult),
-    toolCallId: z.string(),
-    toolName: z.string(),
-    result: z.unknown().optional(),
-    action: z.enum(ToolActionResult), // Flag to distinguish simple results from user approvals
-  })
-]);
+export enum ChatRequestType {
+  Message = "message",
+  ToolAction = "tool_action",
+}
 
-export const UIMessageSchema = z.object({
-  id: z.string(),
-  role: z.enum(MessageRole),
-  content: z.string(),
-  parts: z.array(MessagePartSchema).default([]),
-});
-
-/** Request body for POST /chat: message and optional thread_id (omit for new thread) */
-export const ChatRequestSchema = z.object({
+const SendMessageSchema = z.object({
+  type: z.literal(ChatRequestType.Message),
   threadId: z.string().optional(),
-  messages: z.array(UIMessageSchema),
+  content: z.string().min(1),
   context: z.record(z.string(), z.unknown()).optional(),
 });
 
+const ToolActionSchema = z.object({
+  type: z.literal(ChatRequestType.ToolAction),
+  threadId: z.string(),
+  toolCallId: z.string(),
+  action: z.enum(ToolAction),
+  modifiedArgs: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const ChatRequestSchema = z.discriminatedUnion("type", [
+  SendMessageSchema,
+  ToolActionSchema,
+]);
+
 export type ChatRequest = z.infer<typeof ChatRequestSchema>;
-export type UIMessage = z.infer<typeof UIMessageSchema>;
+export type SendMessageRequest = z.infer<typeof SendMessageSchema>;
+export type ToolActionRequest = z.infer<typeof ToolActionSchema>;

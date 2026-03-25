@@ -1,46 +1,84 @@
-import type { MessageRole, ToolActionResult } from "./enums.js";
+import { MessageRole, ToolAction } from "./enums.js";
 
-/**
- * Input passed into the agent for each run.
- * - threadId: conversation thread (required for checkpointing).
- * - messages: current conversation messages from UI.
- * - resume: when continuing after an interrupt (approve/cancel/skip/retry).
- */
+// ---------------------------------------------------------------------------
+// Messages — discriminated union on `role`
+// ---------------------------------------------------------------------------
+
+interface MessageBase {
+  id: string;
+  createdAt?: string;
+}
+
+export interface HumanMessage extends MessageBase {
+  role: MessageRole.Human;
+  content: string;
+}
+
+export interface SystemMessage extends MessageBase {
+  role: MessageRole.System;
+  content: string;
+}
+
+export interface ToolCall {
+  toolCallId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  requiresApproval: boolean;
+}
+
+export interface AssistantMessage extends MessageBase {
+  role: MessageRole.Assistant;
+  content: string;
+  toolCalls?: ToolCall[];
+}
+
+export interface ToolMessage extends MessageBase {
+  role: MessageRole.Tool;
+  toolCallId: string;
+  toolName: string;
+  result: unknown;
+  action: ToolAction;
+  error?: string;
+}
+
+export type AgentMessage =
+  | HumanMessage
+  | SystemMessage
+  | AssistantMessage
+  | ToolMessage;
+
+// ---------------------------------------------------------------------------
+// State helpers
+// ---------------------------------------------------------------------------
+
+export interface PendingTool {
+  toolCallId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  requiresApproval: boolean;
+}
+
+export interface RetrievedDocument {
+  id: string;
+  content: string;
+  metadata: Record<string, unknown>;
+  score?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Run / Resume
+// ---------------------------------------------------------------------------
+
+export interface AgentResume {
+  toolCallId: string;
+  action: ToolAction;
+  modifiedArgs?: Record<string, unknown>;
+}
+
 export interface AgentRunInput {
   threadId: string;
   messages: AgentMessage[];
-  /** When resuming after interrupt: { toolCallId, action, result? } */
   resume?: AgentResume;
-  context?: Record<string, unknown>;
 }
 
-/**
- * Single message in agent format (flattened from UI if needed).
- */
-export interface AgentMessage {
-  id: string;
-  role: MessageRole;
-  content: string;
-  /** Optional tool-related payload */
-  toolCallId?: string;
-  toolName?: string;
-  args?: unknown;
-  result?: unknown;
-  action?: ToolActionResult;
-}
-
-/**
- * Resume payload when continuing after an approval interrupt.
- */
-export interface AgentResume {
-  toolCallId: string;
-  toolName: string;
-  action?: ToolActionResult;
-  result?: unknown;
-}
-
-/**
- * Chunk yielded by agent.stream().
- * Keys are state channel names; values are the update for that step.
- */
 export type AgentStreamChunk = Record<string, unknown>;

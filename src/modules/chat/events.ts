@@ -1,8 +1,4 @@
-/**
- * SSE event types used by the chat module to notify the UI during the agent flow.
- */
-
-import { ToolActionResult } from "../agent";
+import { AgentStatusPhase, ToolAction } from "@/modules/agent/enums";
 
 export enum SSEEventType {
   Session = "session",
@@ -11,64 +7,57 @@ export enum SSEEventType {
   TextEnd = "text-end",
   ToolCall = "tool-call",
   ToolResult = "tool-result",
-  ApprovalRequested = "approval-requested",
+  ApprovalRequired = "approval-required",
+  ContextRetrieved = "context-retrieved",
   Error = "error",
   Finish = "finish",
 }
 
-/** Status code for "status" events: planning | thinking | executing | tool_result. */
-export enum StatusCode {
-  Planning = "planning",
-  Thinking = "thinking",
-  Executing = "executing",
-  ToolResult = "tool_result",
-}
-
-/** Finish reason for "finish" events. */
 export enum FinishReason {
   Stop = "stop",
-  Length = "length",
-  ToolCall = "tool-call",
-  ContentFilter = "content-filter",
+  Approval = "approval",
   Error = "error",
   Abort = "abort",
+  MaxSteps = "max-steps",
 }
-
-/**
- * UI message part type (tool result).
- */
-export enum MessagePartType {
-  ToolResult = "tool-result",
-}
-
 
 export type SSEEvent =
   | { type: SSEEventType.Session; threadId: string }
-  | { type: SSEEventType.Status; message: string; code?: StatusCode }
+  | { type: SSEEventType.Status; code: AgentStatusPhase; message: string }
   | { type: SSEEventType.TextDelta; content: string; messageId?: string }
-  | { type: SSEEventType.TextEnd; messageId?: string; metadata?: Record<string, unknown> }
+  | { type: SSEEventType.TextEnd; messageId?: string }
   | {
       type: SSEEventType.ToolCall;
       toolCallId: string;
       toolName: string;
-      args: unknown;
+      args: Record<string, unknown>;
       messageId?: string;
     }
   | {
       type: SSEEventType.ToolResult;
       toolCallId: string;
-      action: ToolActionResult;
+      toolName: string;
+      action: ToolAction;
       result?: unknown;
-      messageId?: string;
+      error?: string;
     }
   | {
-      type: SSEEventType.ApprovalRequested;
+      type: SSEEventType.ApprovalRequired;
       toolCallId: string;
       toolName: string;
-      args: unknown;
-      messageId?: string;
+      args: Record<string, unknown>;
+      description: string;
     }
-  | { type: SSEEventType.Error; messageId?: string; message: string; code?: string }
+  | {
+      type: SSEEventType.ContextRetrieved;
+      documents: Array<{
+        id: string;
+        title?: string;
+        snippet: string;
+        score?: number;
+      }>;
+    }
+  | { type: SSEEventType.Error; message: string; code?: string }
   | {
       type: SSEEventType.Finish;
       finishReason: FinishReason;

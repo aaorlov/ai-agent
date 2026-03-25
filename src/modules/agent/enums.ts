@@ -1,34 +1,24 @@
-/**
- * Message role (system, user, assistant, tool).
- * Used by agent state and chat UIMessage.
- */
 export enum MessageRole {
+  Human = "human",
   System = "system",
-  User = "user",
   Assistant = "assistant",
   Tool = "tool",
 }
 
 /**
- * UI message part type (text, tool invocation, tool result).
+ * How a tool call was resolved.
+ * - Executed: auto-executed (no approval needed)
+ * - Approved / Cancelled / Skipped: human decision
+ * - Error: tool errored during execution
  */
-export enum MessagePartType {
-  Text = "text",
-  ToolInvocation = "tool-invocation",
-  ToolResult = "tool-result",
-}
-
-/**
- * Tool result action: approve, cancel, skip, retry.
- * Used when user responds to an approval request or when retrying.
- */
-export enum ToolActionResult {
+export enum ToolAction {
+  Executed = "executed",
   Approved = "approved",
   Cancelled = "cancelled",
-  Skipped = "skipped"
+  Skipped = "skipped",
+  Error = "error",
 }
 
-/** Status phase for agent streaming (planning, thinking, executing, tool result). */
 export enum AgentStatusPhase {
   Planning = "planning",
   Thinking = "thinking",

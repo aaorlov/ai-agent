@@ -1,15 +1,29 @@
 export {
   MessageRole,
-  MessagePartType,
-  ToolActionResult,
+  ToolAction,
   AgentStatusPhase,
-} from "./enums.js";
-export type { AgentRunInput, AgentMessage, AgentResume, AgentStreamChunk } from "./types.js";
-export { AgentStateAnnotation, type AgentState } from "./state.js";
+} from "./enums";
+
+export type {
+  AgentRunInput,
+  AgentMessage,
+  HumanMessage,
+  SystemMessage,
+  AssistantMessage,
+  ToolMessage,
+  ToolCall,
+  AgentResume,
+  PendingTool,
+  RetrievedDocument,
+  AgentStreamChunk,
+} from "./types";
+
+export { AgentStateAnnotation, type AgentState } from "./state";
+
 export {
   agentGraph,
   streamAgent,
   toGraphInput,
   getThreadState,
   type AgentGraph,
-} from "./graph.js";
+} from "./graph";

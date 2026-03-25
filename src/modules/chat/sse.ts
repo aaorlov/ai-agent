@@ -1,107 +1,152 @@
-/**
- * SSE chat: stream agent via graph.stream(), map agent updates to SSE events.
- * Supports: new thread, continue thread, tool approval (approve/cancel/skip/retry).
- */
-
 import type { SSEStreamingApi } from "hono/streaming";
-import { streamAgent, getThreadState, MessagePartType } from "@/modules/agent";
-import type { AgentMessage, AgentResume, AgentState, AgentRunInput } from "@/modules/agent";
-import { AgentStatusPhase } from "@/modules/agent";
+import { streamAgent, MessageRole, AgentStatusPhase } from "@/modules/agent";
+import type {
+  AgentMessage,
+  AgentState,
+  AgentRunInput,
+  AssistantMessage,
+  ToolMessage,
+} from "@/modules/agent";
 
-import type { ChatRequest, UIMessage } from "./schemas.js";
+import type { ChatRequest } from "./schemas";
+import { ChatRequestType } from "./schemas";
 import type { SSEEvent } from "./events.js";
-import { SSEEventType, StatusCode, FinishReason } from "./events.js";
-import { sseEventToMessage } from "./utils.js";
+import { SSEEventType, FinishReason } from "./events";
+import { sseEventToMessage } from "./utils";
+
+// ---------------------------------------------------------------------------
+// Request → AgentRunInput
+// ---------------------------------------------------------------------------
 
 async function toAgentInput(
   threadId: string,
   body: ChatRequest
 ): Promise<AgentRunInput> {
-  const agentInput: AgentRunInput = {
-    threadId,
-    messages: [],
+  if (body.type === ChatRequestType.ToolAction) {
+    return {
+      threadId,
+      messages: [],
+      resume: {
+        toolCallId: body.toolCallId,
+        action: body.action,
+        modifiedArgs: body.modifiedArgs,
+      },
+    };
   }
 
-  const lastToolResult: AgentResume | undefined = body.messages.at(-1)?.parts.find((p) => p.type === MessagePartType.ToolResult);
-  
-  // Agent will use resume command and restore messages from the checkpoint
-  if (lastToolResult) {
-    agentInput.resume = lastToolResult;
-    return agentInput
-  }
+  const humanMessage: AgentMessage = {
+    id: crypto.randomUUID(),
+    role: MessageRole.Human,
+    content: body.content,
+  };
 
-  const { values } = await getThreadState(threadId);
-  const existing: AgentMessage[] = values.messages ?? [];
-  agentInput.messages = existing.concat(body.messages.map((m: UIMessage) => ({
-    id: m.id,
-    role: m.role,
-    content: m.content
-  })));
-
-  return agentInput;
+  return { threadId, messages: [humanMessage] };
 }
 
-/** Map agent stream chunk (node name -> partial state update) to zero or more SSE events. */
-function* chunkToSSEEvents(chunk: Record<string, Partial<AgentState>>): Generator<SSEEvent> {
+// ---------------------------------------------------------------------------
+// Agent state chunk → SSE events
+// ---------------------------------------------------------------------------
+
+const STATUS_LABELS: Record<AgentStatusPhase, string> = {
+  [AgentStatusPhase.Planning]: "Planning",
+  [AgentStatusPhase.Thinking]: "Thinking",
+  [AgentStatusPhase.Executing]: "Executing tool",
+  [AgentStatusPhase.ToolResult]: "Tool result",
+};
+
+function* chunkToSSEEvents(
+  chunk: Record<string, Partial<AgentState>>
+): Generator<SSEEvent> {
   for (const u of Object.values(chunk)) {
     if (!u || typeof u !== "object") continue;
 
-    switch (u.status) {
-      case AgentStatusPhase.Planning:
-        yield { type: SSEEventType.Status, message: "Planning", code: StatusCode.Planning };
-        break;
-      case AgentStatusPhase.Thinking:
-        yield { type: SSEEventType.Status, message: "Thinking", code: StatusCode.Thinking };
-        break;
-      case AgentStatusPhase.Executing:
-        yield { type: SSEEventType.Status, message: "Executing tool", code: StatusCode.Executing };
-        break;
-      case AgentStatusPhase.ToolResult:
-        yield { type: SSEEventType.Status, message: "Tool result", code: StatusCode.ToolResult };
-        break;
+    if (u.status) {
+      yield {
+        type: SSEEventType.Status,
+        code: u.status,
+        message: STATUS_LABELS[u.status],
+      };
     }
 
-    if (u.pendingTool) {
-      const pending = u.pendingTool;
+    if (Array.isArray(u.pendingTools)) {
+      for (const tool of u.pendingTools) {
+        if (tool.requiresApproval) {
+          yield {
+            type: SSEEventType.ApprovalRequired,
+            toolCallId: tool.toolCallId,
+            toolName: tool.toolName,
+            args: tool.args,
+            description: `Execute ${tool.toolName}`,
+          };
+        }
+      }
+    }
+
+    if (Array.isArray(u.retrievedContext) && u.retrievedContext.length) {
       yield {
-        type: SSEEventType.ApprovalRequested,
-        toolCallId: pending.toolCallId,
-        toolName: pending.toolName,
-        args: pending.args,
+        type: SSEEventType.ContextRetrieved,
+        documents: u.retrievedContext.map((doc) => ({
+          id: doc.id,
+          snippet: doc.content,
+          score: doc.score,
+        })),
       };
     }
 
     if (Array.isArray(u.messages)) {
       for (const msg of u.messages) {
-        if (msg.toolCallId && msg.toolName) {
-          if (!msg.action) {
+        if (msg.role === MessageRole.Assistant) {
+          const am = msg as AssistantMessage;
+
+          if (am.toolCalls?.length) {
+            for (const tc of am.toolCalls) {
+              yield {
+                type: SSEEventType.ToolCall,
+                messageId: am.id,
+                toolCallId: tc.toolCallId,
+                toolName: tc.toolName,
+                args: tc.args,
+              };
+            }
+          }
+
+          if (am.content) {
             yield {
-              type: SSEEventType.ToolCall,
-              toolCallId: msg.toolCallId,
-              toolName: msg.toolName,
-              args: msg.args ?? {},
+              type: SSEEventType.TextDelta,
+              messageId: am.id,
+              content: am.content,
             };
-          } else {
-            yield {
-              type: SSEEventType.ToolResult,
-              toolCallId: msg.toolCallId,
-              result: msg.result ?? { action: msg.action },
-              action: msg.action,
-            };
+            yield { type: SSEEventType.TextEnd, messageId: am.id };
           }
         }
-        if (msg.content) {
-          yield { type: SSEEventType.TextDelta, content: msg.content };
-          yield { type: SSEEventType.TextEnd };
+
+        if (msg.role === MessageRole.Tool) {
+          const tm = msg as ToolMessage;
+          yield {
+            type: SSEEventType.ToolResult,
+            toolCallId: tm.toolCallId,
+            toolName: tm.toolName,
+            action: tm.action,
+            result: tm.result,
+            error: tm.error,
+          };
         }
       }
     }
 
     if (typeof u.textDelta === "string" && u.textDelta) {
-      yield { type: SSEEventType.TextDelta, content: u.textDelta };
+      yield {
+        type: SSEEventType.TextDelta,
+        content: u.textDelta,
+        messageId: u.currentMessageId || undefined,
+      };
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Public streaming generators
+// ---------------------------------------------------------------------------
 
 export async function* streamChatEvents(
   body: ChatRequest,
@@ -115,14 +160,16 @@ export async function* streamChatEvents(
 
     for await (const chunk of streamAgent(input, { signal })) {
       for (const ev of chunkToSSEEvents(chunk)) {
-        if (ev.type === SSEEventType.ApprovalRequested) hadApprovalRequest = true;
+        if (ev.type === SSEEventType.ApprovalRequired) hadApprovalRequest = true;
         yield ev;
       }
     }
 
     yield {
       type: SSEEventType.Finish,
-      finishReason: hadApprovalRequest ? FinishReason.ToolCall : FinishReason.Stop,
+      finishReason: hadApprovalRequest
+        ? FinishReason.Approval
+        : FinishReason.Stop,
     };
   } catch (err) {
     yield {
@@ -133,13 +180,12 @@ export async function* streamChatEvents(
   }
 }
 
-/** Run the SSE chat stream: optional session event, then streamChatEvents written as SSE. */
 export const handleChatStream = async (
   body: ChatRequest,
   stream: SSEStreamingApi,
   signal: AbortSignal
 ): Promise<void> => {
-  const threadId = body.threadId ?? crypto.randomUUID();
+  const threadId = body.threadId || crypto.randomUUID();
 
   if (!body.threadId) {
     await stream.writeSSE(

@@ -8,13 +8,10 @@ import {
 } from "@langchain/langgraph";
 import { AgentStateAnnotation, type AgentState } from "./state.js";
 import type { AgentRunInput, AgentResume } from "./types.js";
-import { AgentStatusPhase, MessageRole, ToolActionResult } from "./enums.js";
+import { AgentStatusPhase, MessageRole, ToolAction } from "./enums.js";
 
 const checkpointer = new MemorySaver();
 
-/**
- * Plan node: set status to planning/thinking (stub; replace with LLM when needed).
- */
 async function plan(state: AgentState): Promise<Partial<AgentState>> {
   return {
     status: AgentStatusPhase.Planning,
@@ -22,18 +19,13 @@ async function plan(state: AgentState): Promise<Partial<AgentState>> {
   };
 }
 
-/**
- * After planning, move to "thinking" then hand off to execute_tool.
- */
 async function thinking(state: AgentState): Promise<Partial<AgentState>> {
   return { status: AgentStatusPhase.Thinking };
 }
 
 /**
- * Execute tool node: sets status, pendingTool, and adds an assistant message
- * with the tool invocation (approval requested). Messages are the source of truth:
- * when the user reopens the thread, this message is in the thread so the UI
- * can show the pending approval without relying on pendingTool alone.
+ * Stub: creates an assistant message with a tool call that requires approval.
+ * Replace with real LLM + tool-binding logic.
  */
 async function executeTool(state: AgentState): Promise<Partial<AgentState>> {
   const toolCallId = crypto.randomUUID();
@@ -42,54 +34,52 @@ async function executeTool(state: AgentState): Promise<Partial<AgentState>> {
 
   return {
     status: AgentStatusPhase.Executing,
-    pendingTool: { toolCallId, toolName, args },
+    pendingTools: [{ toolCallId, toolName, args, requiresApproval: true }],
     messages: [
       {
         id: crypto.randomUUID(),
         role: MessageRole.Assistant,
         content: "",
-        toolCallId,
-        toolName,
-        args,
+        toolCalls: [{ toolCallId, toolName, args, requiresApproval: true }],
       },
     ],
   };
 }
 
 /**
- * Node that triggers interrupt for approval. When resumed, interrupt() returns the resume value.
- * Appends a Tool-role message with the result/action so the thread has: assistant (invocation) → tool (result).
+ * Interrupt for human approval, then append a ToolMessage with the resolution.
  */
-async function requestApproval(state: AgentState): Promise<Partial<AgentState>> {
-  const pending = state.pendingTool;
-  if (!pending) {
-    return { status: null, pendingTool: null };
+async function requestApproval(
+  state: AgentState
+): Promise<Partial<AgentState>> {
+  const pending = state.pendingTools;
+  if (!pending.length) {
+    return { status: null, pendingTools: [] };
   }
+
+  const tool = pending[0];
   const resumeValue = interrupt({
-    toolCallId: pending.toolCallId,
-    toolName: pending.toolName,
-    args: pending.args,
+    toolCallId: tool.toolCallId,
+    toolName: tool.toolName,
+    args: tool.args,
   }) as AgentResume | undefined;
+
   return {
     status: AgentStatusPhase.ToolResult,
-    pendingTool: null,
+    pendingTools: [],
     messages: [
       {
         id: crypto.randomUUID(),
         role: MessageRole.Tool,
-        content: "",
-        toolCallId: pending.toolCallId,
-        toolName: pending.toolName,
-        result: resumeValue?.result,
-        action: resumeValue?.action ?? ToolActionResult.Approved,
+        toolCallId: tool.toolCallId,
+        toolName: tool.toolName,
+        result: resumeValue?.modifiedArgs ?? {},
+        action: resumeValue?.action ?? ToolAction.Approved,
       },
     ],
   };
 }
 
-/**
- * Respond node: clear status, produce final assistant message (stub).
- */
 async function respond(state: AgentState): Promise<Partial<AgentState>> {
   return {
     status: null,
@@ -121,13 +111,9 @@ export const agentGraph = workflow.compile({ checkpointer });
 
 export type AgentGraph = typeof agentGraph;
 
-/**
- * Get current state for a thread (from MemorySaver checkpoint).
- * Returns empty values when the thread has no checkpoint yet.
- */
-export async function getThreadState(threadId: string): Promise<{
-  values: Partial<AgentState>;
-}> {
+export async function getThreadState(
+  threadId: string
+): Promise<{ values: Partial<AgentState> }> {
   const config = { configurable: { thread_id: threadId } };
   try {
     const snapshot = await agentGraph.getState(config);
@@ -137,26 +123,19 @@ export async function getThreadState(threadId: string): Promise<{
   }
 }
 
-/**
- * Build run input for the graph: either initial state update or Command to resume.
- */
-export function toGraphInput(input: AgentRunInput): Record<string, unknown> | Command {
+export function toGraphInput(
+  input: AgentRunInput
+): Record<string, unknown> | Command {
   if (input.resume) {
-    return new Command({
-      resume: input.resume,
-    });
+    return new Command({ resume: input.resume });
   }
   return {
     messages: input.messages,
     status: null,
-    pendingTool: null,
+    pendingTools: [],
   };
 }
 
-/**
- * Stream agent run. Yields state updates (streamMode: "updates").
- * Use same threadId and optional resume to continue after an interrupt.
- */
 export async function* streamAgent(
   input: AgentRunInput,
   options: { signal?: AbortSignal }
@@ -168,7 +147,6 @@ export async function* streamAgent(
   };
 
   const graphInput = toGraphInput(input);
-
   const stream = await agentGraph.stream(graphInput, streamOptions);
 
   for await (const chunk of stream) {
