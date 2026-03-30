@@ -5,12 +5,8 @@ export enum ChatRequestType {
 
 export enum SSEEventType {
   Session = "session",
-  Status = "status",
   TextDelta = "text-delta",
-  TextEnd = "text-end",
-  ToolCall = "tool-call",
-  ToolResult = "tool-result",
-  ApprovalRequired = "approval-required",
+  Message = "message",
   ContextRetrieved = "context-retrieved",
   Error = "error",
   Finish = "finish",

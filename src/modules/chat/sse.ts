@@ -1,13 +1,11 @@
 import type { SSEStreamingApi } from "hono/streaming";
-import { streamAgent, MessageRole } from "@/modules/agent";
+import { streamAgent, MessageRole, type AgentState } from "@/modules/agent";
 import { CustomEventType, StreamMode } from "@/modules/agent/enums";
-import type { CustomEventData } from "@/modules/agent/types";
 import type {
-  AgentState,
   AgentRunInput,
-  AgentMessage,
-  AssistantMessage
-} from "@/modules/agent";
+  CustomEventData,
+  ToolCall
+} from "@/modules/agent/types";
 
 import type { ChatRequest } from "./dto/request.dto";
 import { ChatRequestType, SSEEventType, FinishReason } from "./enums";
@@ -39,6 +37,7 @@ const toAgentInput = (
         id: crypto.randomUUID(),
         role: MessageRole.Human,
         content: body.content,
+        createdAt: new Date().toISOString(),
       });
       break;
     default:
@@ -54,20 +53,6 @@ function* updateAgentStateToSSEEvents(
   for (const [nodeName, u] of Object.entries(chunk)) {
     if (!u || typeof u !== "object") continue;
 
-    if (Array.isArray(u.pendingTools)) {
-      for (const tool of u.pendingTools) {
-        if (tool.requiresApproval) {
-          yield {
-            type: SSEEventType.ApprovalRequired,
-            toolCallId: tool.toolCallId,
-            toolName: tool.toolName,
-            args: tool.args,
-            description: `Execute ${tool.toolName}`,
-          };
-        }
-      }
-    }
-
     if (Array.isArray(u.retrievedContext) && u.retrievedContext.length) {
       yield {
         type: SSEEventType.ContextRetrieved,
@@ -82,40 +67,10 @@ function* updateAgentStateToSSEEvents(
 
     if (Array.isArray(u.messages)) {
       for (const msg of u.messages) {
-        if (msg.role === MessageRole.Assistant) {
-          const am = msg as AssistantMessage;
-
-          if (am.toolCalls?.length) {
-            for (const tc of am.toolCalls) {
-              yield {
-                type: SSEEventType.ToolCall,
-                messageId: am.id,
-                toolCallId: tc.toolCallId,
-                toolName: tc.toolName,
-                args: tc.args,
-              };
-            }
-          }
-
-          if (am.content) {
-            yield {
-              type: SSEEventType.TextEnd,
-              messageId: am.id,
-              content: am.content,
-            };
-          }
-        }
-
-        if (msg.role === MessageRole.Tool) {
-          yield {
-            type: SSEEventType.ToolResult,
-            toolCallId: msg.toolCallId,
-            toolName: msg.toolName,
-            action: msg.action,
-            result: msg.result,
-            error: msg.error,
-          };
-        }
+        yield {
+          type: SSEEventType.Message,
+          message: msg,
+        };
       }
     }
   }
@@ -145,7 +100,7 @@ export async function* streamChatEvents(
   const input = toAgentInput(threadId, body);
 
   try {
-    let hadApprovalRequest = false;
+    let approvalRequested = false;
 
     for await (const event of streamAgent(input, { signal })) {
       // Stream custom / intermediate events, not a part of chat history
@@ -156,7 +111,11 @@ export async function* streamChatEvents(
 
       if(event.mode === StreamMode.Updates) {
         for (const ev of updateAgentStateToSSEEvents(event.data)) {
-          if (ev.type === SSEEventType.ApprovalRequired) hadApprovalRequest = true;
+          if (
+            ev.type === SSEEventType.Message
+            && ev.message.role === MessageRole.Assistant 
+            && ev.message?.toolCalls?.some((toolCall: ToolCall) => toolCall.requiresApproval)
+          ) approvalRequested = true;
           yield ev;
         }
       }
@@ -164,7 +123,7 @@ export async function* streamChatEvents(
 
     yield {
       type: SSEEventType.Finish,
-      finishReason: hadApprovalRequest
+      finishReason: approvalRequested
         ? FinishReason.Approval
         : FinishReason.Stop,
     };

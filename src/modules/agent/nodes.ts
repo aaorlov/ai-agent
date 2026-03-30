@@ -4,7 +4,7 @@ import { interrupt, LangGraphRunnableConfig } from "@langchain/langgraph";
 import { concat } from '@langchain/core/utils/stream';
 import { AgentState } from "./state";
 import { AgentResume } from "./types";
-import { AgentStatusPhase, CustomEventType, MessageRole, ToolAction } from "./enums";
+import { CustomEventType, MessageRole, ToolAction } from "./enums";
 import { env } from "@/config";
 import { toLC } from "./utils";
 
@@ -40,8 +40,62 @@ export const callModel = async (state: AgentState, config: LangGraphRunnableConf
         id: fullMessage?.id ?? crypto.randomUUID(),
         role: MessageRole.Assistant,
         content,
+        createdAt: new Date().toISOString(),
       },
     ],
   };
 }
 
+/**
+ * Stub: creates an assistant message with a tool call that requires approval.
+ * Replace with real LLM + tool-binding logic.
+ */
+export async function executeTool(
+  state: AgentState
+): Promise<Partial<AgentState>> {
+  const toolCallId = crypto.randomUUID();
+  const toolName = "example_approval_tool";
+  const args = { message: "Executing tool" };
+
+  return {
+    messages: [
+      {
+        id: crypto.randomUUID(),
+        role: MessageRole.Assistant,
+        content: "",
+        toolCalls: [{ toolCallId, toolName, args, requiresApproval: true }],
+        createdAt: new Date().toISOString(),
+      },
+    ],
+  };
+}
+
+/**
+ * Interrupt for human approval, then append a ToolMessage with the resolution.
+ */
+export async function requestApproval(
+  state: AgentState
+): Promise<Partial<AgentState>> {
+  const pending = state.pendingTools;
+  const tool = pending[0];
+  const resumeValue = interrupt({
+    toolCallId: tool.toolCallId,
+    toolName: tool.toolName,
+    args: tool.args,
+  }) as AgentResume | undefined;
+
+  return {
+    pendingTools: [],
+    messages: [
+      {
+        id: crypto.randomUUID(),
+        role: MessageRole.Tool,
+        toolCallId: tool.toolCallId,
+        toolName: tool.toolName,
+        result: resumeValue?.modifiedArgs ?? {},
+        action: resumeValue?.action ?? ToolAction.Approved,
+        createdAt: new Date().toISOString(),
+      },
+    ],
+  };
+}
