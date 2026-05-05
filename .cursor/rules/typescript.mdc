@@ -1,0 +1,95 @@
+---
+description: TypeScript-specific conventions (assumes coding-best-practices.mdc)
+globs: **/*.ts,**/*.tsx
+alwaysApply: false
+---
+
+# TypeScript Standards
+
+Language-specific rules. General principles live in `coding-best-practices.mdc` — do not restate them here.
+
+## tsconfig
+
+- Always enable `strict`. Also enable `noUncheckedIndexedAccess` and `noFallthroughCasesInSwitch`.
+- Treat compiler errors as build failures. Do not silence with `// @ts-ignore`; if a workaround is unavoidable, use `// @ts-expect-error` with a reason.
+
+## Type Safety
+
+- Don't use `any` — use `unknown` when the type is genuinely unknown.
+- Avoid non-null assertions (`!`); narrow the type instead.
+- Avoid type casts (`as Foo`); use type guards or schema parsing.
+- Use `readonly` for data that shouldn't be mutated.
+
+## type vs interface
+
+- Prefer `interface` for object shapes.
+- Use `type` only when `interface` can't express what you need: unions, intersections, mapped or conditional types, function or tuple aliases.
+
+## Enums
+
+- Use `enum` for fixed sets of named values.
+- Prefer string enums for stable wire/log values:
+
+```ts
+enum Status {
+  Idle = "idle",
+  Loading = "loading",
+  Done = "done",
+}
+```
+
+- Avoid `const enum` — it doesn't play well with `isolatedModules` and bundlers.
+
+## Generics
+
+- Constrain generics with `extends` whenever you assume shape; don't leave them unbounded.
+- Name generics meaningfully when more than one: `TItem`, `TKey`, `TValue`. Single `T` is fine for trivially generic helpers.
+- Provide sensible defaults to keep callsites short.
+
+## Imports & Exports
+
+- Named exports only; no `default` exports.
+- Use `import type { ... }` for type-only imports so they're erased at runtime.
+- Match the project's ESM path style (e.g. `.js` extensions when required by the resolver).
+- Each module exposes its public API through an `index.ts` barrel file.
+- Code outside a module imports only from that module's `index.ts`, never from internal files directly.
+- `index.ts` re-exports only what is intended for external use; internal helpers, types, and constants stay private to the module.
+
+## Async
+
+- Always `await` or explicitly handle promises; never leave them floating.
+- Use `Promise.all` / `Promise.allSettled` for independent parallel work.
+- Type non-trivial async returns explicitly: `async function load(): Promise<User>`.
+
+## Errors
+
+- In `catch`, the caught value is `unknown` — narrow before use.
+- Extend `Error`, set `name`, and forward the underlying cause via `{ cause }`.
+
+```ts
+class HttpError extends Error {
+  constructor(public status: number, message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "HttpError";
+  }
+}
+```
+
+## Zod Schemas
+
+- Use Zod for every external boundary (HTTP, env, files, IPC).
+- Derive types from schemas: `type User = z.infer<typeof UserSchema>`.
+- Schema is the single source of truth — do not hand-maintain a parallel `interface` for the same data.
+
+## Naming
+
+- `PascalCase`: types, interfaces, classes, enums, enum members.
+- `camelCase`: variables, functions, methods, parameters.
+- `SCREAMING_SNAKE_CASE`: only true compile-time constants (env keys, hard limits).
+- Generic params: `T`, or `TItem` / `TKey` / `TValue` when more than one.
+
+## Style
+
+- Prefer `const`; use `let` only when reassignment is genuine; never `var`.
+- Pick one of `T[]` or `Array<T>` and stay consistent within a file (`T[]` for simple, `Array<T>` for complex generics is a common split).
+- Pick one of `null` or `undefined` per codebase for "missing value"; don't use both interchangeably.

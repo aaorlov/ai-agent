@@ -1,0 +1,106 @@
+---
+description: General coding and design best practices (language-agnostic)
+alwaysApply: true
+---
+
+# Coding Best Practices
+
+Applies to all languages. Language-specific conventions live in their own rules.
+
+## Formatting
+
+- Indentation: 2 spaces per level (or 1 tab rendered as 2 spaces).
+- Keep lines reasonably short; wrap long expressions for readability.
+- Use the project's formatter/linter; do not hand-format against it.
+
+## Core Principles
+
+### DRY — Don't Repeat Yourself
+Extract shared logic into functions, classes, or modules. If you copy-paste code, refactor it.
+
+### KISS — Keep It Simple, Stupid
+Choose the simplest solution that works. Avoid clever tricks, unnecessary abstractions, and premature generalization.
+
+### YAGNI — You Aren't Gonna Need It
+Don't build features, abstractions, or flexibility "just in case." Add complexity only when there is a concrete requirement.
+
+### Single Responsibility
+Every function, class, and module should do one thing well. If a description needs "and," it's doing too much.
+
+### Separation of Concerns
+Keep business logic, I/O, presentation, and configuration in distinct layers. Don't mix HTTP handling with database queries.
+
+### Least Surprise
+Code should behave the way a reader would expect. Prefer conventional names, standard patterns, and predictable control flow.
+
+## Clean Code Standards
+
+### Naming
+- Names should reveal intent: `remainingRetries` not `r`, `isValid` not `flag`.
+- Functions: verb phrases (`fetchUser`, `validateInput`).
+- Booleans: question form (`isReady`, `hasAccess`, `shouldRetry`).
+- Avoid abbreviations unless universally understood (`id`, `url`, `http`).
+- Follow the casing convention of the language (camelCase, snake_case, PascalCase).
+
+### Functions
+- Small and focused — ideally under 20 lines.
+- Minimal parameters (3 or fewer). Group related params into a data object.
+- One level of abstraction per function. Don't mix high-level orchestration with low-level details.
+- No side effects unless the name clearly signals them.
+
+### Constants & Magic Values
+- No magic numbers or strings in business logic — extract to named constants.
+- All constants live in a `constants/` folder, split into separate files by context (e.g. `constants/http.ts`, `constants/auth.ts`, `constants/limits.ts`).
+- Import constants from their dedicated module; do not redeclare the same value in multiple places.
+
+### Immutability
+- Prefer immutable data and pure transformations over in-place mutation.
+- Treat function arguments as read-only; return new values instead of mutating inputs.
+
+### Error Handling
+- Fail fast: validate inputs early, raise on invalid state.
+- Catch specific exceptions, never bare/blanket catches.
+- Always log or re-raise — never silently swallow errors.
+- Use custom exception/error types for domain errors.
+
+### Comments
+- Don't comment *what* — the code should say that.
+- Comment *why* — non-obvious intent, trade-offs, workarounds.
+- Delete commented-out code. That's what version control is for.
+
+### Dependencies
+- Prefer composition over inheritance.
+- Depend on abstractions (interfaces/protocols), not concrete implementations.
+- Inject dependencies rather than hard-coding them.
+
+## Boundary Validation
+
+- Validate and normalize all external input (HTTP, env, files, user input) at the edges; trust the core.
+- Reject invalid input with clear, actionable errors — don't coerce silently.
+- Define a schema/type for every external boundary and derive internal types from it.
+
+## Logging & Observability
+
+- Use structured logs with context (request id, user id, operation name).
+- Pick the right level: `debug` for diagnostics, `info` for lifecycle, `warn` for recoverable issues, `error` for failures.
+- Never log personal data (PII) or any unclassified user input.
+- Log once per error at the boundary that handles it; don't log-and-rethrow at every layer.
+
+## Configuration & Secrets
+
+- Read configuration from environment or a config layer; no hardcoded URLs, hosts, or feature flags.
+- Secrets never live in source, logs, or error messages.
+- Validate required config at startup and fail fast if missing or malformed.
+
+## Security Basics
+
+- Never `eval` or dynamically execute untrusted input.
+- Always escape or parameterize before passing data to interpreters (SQL, shell, HTML, regex).
+- Default-deny on authorization checks; require explicit allow.
+
+## Code Organization
+
+- Keep files focused and short. Split when a file exceeds ~300 lines when possible.
+- Group by feature/domain, not by technical layer when possible.
+- Public API at the top of the module, private helpers below.
+- Imports at the top, sorted and grouped (stdlib → third-party → local).
