@@ -1,123 +1,57 @@
 import { Hono } from "hono";
-import { Scalar } from "@scalar/hono-api-reference";
 import { cors } from "hono/cors";
-import { logger } from "hono/logger";
+import { logger as honoRequestLogger } from "hono/logger";
 import { prettyJSON } from "hono/pretty-json";
-import { openAPIRouteHandler } from "hono-openapi";
 
+import { SERVER } from "./common/constants";
+import { Environment, HttpStatus, Routes } from "./common/enums";
+import { HttpError, toErrorMessage } from "./common/errors";
+import { logger } from "./common/utils";
 import { env } from "./config";
-import { health } from "./modules/health";
 import { chat } from "./modules/chat";
+import { health } from "./modules/health";
+import { mountOpenApi } from "./openapi";
 
-// Create the main Hono app
 const app = new Hono();
 
-// === GLOBAL MIDDLEWARE ===
-
-// Request logging
-app.use("*", logger());
-
-// Pretty JSON responses in development
-if (env.ENV === "dev") {
-  app.use("*", prettyJSON());
-}
-
-// CORS configuration
+app.use("*", honoRequestLogger());
+if (env.ENV === Environment.DEV) app.use("*", prettyJSON());
 app.use(cors());
 
-// === ERROR HANDLING ===
-
 app.onError((err, c) => {
-  console.error(`[Error] ${err.message}`, err.stack);
+	const message = toErrorMessage(err);
+	logger.error("Request failed", {
+		path: c.req.path,
+		method: c.req.method,
+		error: message,
+	});
 
-  // Default error response
-  return c.json(
-    {
-      error: env.ENV === "prod" ? "Internal Server Error" : err.message,
-    },
-    500
-  );
+	if (err instanceof HttpError) {
+		return c.json({ error: err.message }, err.status);
+	}
+	const exposedMessage = env.ENV === Environment.PROD ? "Internal Server Error" : message;
+	return c.json({ error: exposedMessage }, HttpStatus.InternalServerError);
 });
 
-// 404 handler
-app.notFound((c) => {
-  return c.json(
-    {
-      error: "Not Found",
-      path: c.req.path,
-    },
-    404
-  );
-});
+app.notFound((c) => c.json({ error: "Not Found", path: c.req.path }, HttpStatus.NotFound));
 
-// === ROUTES ===
+app.route(Routes.Health, health);
+app.route(Routes.Chat, chat);
 
-// Mount health routes
-app.route("/health", health);
-
-// Chat SSE: POST /chat (streaming); supports new thread, continue thread, tool approve/cancel/skip/retry
-app.route("/chat", chat);
-
-// Root endpoint
-app.get("/", (c) => {
-  return c.json({
-    name: "AI Agent API",
-    version: "1.0.0",
-    description: "AI Agent API",
-    endpoints: {
-      health: "/health",
-      chat: "/chat (POST, SSE)",
-      docs: "/docs",
-      openapi: "/openapi.json",
-    },
-  });
-});
-
-// === OPENAPI DOCUMENTATION ===
-
-// OpenAPI 3.1 JSON spec endpoint using hono-openapi
-app.get(
-  "/openapi.json",
-  openAPIRouteHandler(app, {
-    documentation: {
-  openapi: "3.1.0",
-  info: {
-    title: "AI Agent API",
-    version: "1.0.0",
-        description:
-          "AI Agent API",
-        contact: {
-          name: "API Support",
-        },
-        license: {
-          name: "MIT",
-        },
-  },
-  servers: [
-    {
-      url: `http://localhost:${env.PORT}`,
-      description: "Local development server",
-    },
-        {
-          url: "https://api.prisminvest.com",
-          description: "Production server",
-        },
-  ],
-  tags: [
-    { name: "Health", description: "Health check endpoints" },
-  ],
-    },
-  })
+app.get(Routes.Root, (c) =>
+	c.json({
+		name: SERVER.name,
+		version: SERVER.version,
+		description: SERVER.description,
+		endpoints: {
+			health: Routes.Health,
+			chat: `${Routes.Chat} (POST, SSE)`,
+			docs: Routes.Docs,
+			openapi: Routes.OpenApi,
+		},
+	}),
 );
 
-// Scalar API Reference UI
-app.get(
-  "/docs",
-  Scalar({
-    url: "/openapi.json",
-    theme: "purple",
-    pageTitle: "AI Agent API",
-  })
-);
+mountOpenApi(app);
 
 export { app };

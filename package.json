@@ -9,7 +9,7 @@
     "start": "ENV=dev bun run src/index.ts",
     "start:node": "node --experimental-strip-types src/index.ts",
     "build": "bun build src/index.ts --outdir ./dist --target bun",
-    "lint": "bunx @biomejs/biome check --write .",
+    "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
   "dependencies": {

@@ -1,36 +1,36 @@
-import { env } from "./config";
 import { app } from "./app";
+import { SERVER } from "./common/constants";
+import { logger } from "./common/utils";
+import { env } from "./config";
 
-// === RUNTIME DETECTION ===
-
-function getRuntime(): { name: string; version: string } {
-  if (typeof Bun !== "undefined") {
-    return { name: "Bun", version: Bun.version };
-  }
-  if (typeof process !== "undefined" && process.versions?.node) {
-    return { name: "Node.js", version: process.versions.node };
-  }
-  return { name: "Unknown", version: "unknown" };
+interface RuntimeInfo {
+	readonly name: string;
+	readonly version: string;
 }
 
-const runtime = getRuntime();
-
-// === START SERVER ===
-
-console.log(`
-╔═══════════════════════════════════════════════════════╗
-║           🚀 Prism Invest API (Hono)                  ║
-╠═══════════════════════════════════════════════════════╣
-║  Server:    http://localhost:${String(env.PORT).padEnd(5)}                  ║
-║  Mode:      ${env.ENV.padEnd(12)}                         ║
-║  Runtime:   ${runtime.name} ${runtime.version.padEnd(15)}              ║
-╚═══════════════════════════════════════════════════════╝
-`);
-
-export default {
-  port: env.PORT,
-  fetch(req: Request) {
-    return app.fetch(req);
-  },
+const detectRuntime = (): RuntimeInfo => {
+	if (typeof Bun !== "undefined") {
+		return { name: "Bun", version: Bun.version };
+	}
+	if (typeof process !== "undefined" && process.versions?.node) {
+		return { name: "Node.js", version: process.versions.node };
+	}
+	return { name: "Unknown", version: "unknown" };
 };
 
+const runtime = detectRuntime();
+
+logger.info("Server starting", {
+	service: SERVER.name,
+	version: SERVER.version,
+	port: env.PORT,
+	env: env.ENV,
+	runtime: `${runtime.name} ${runtime.version}`,
+});
+
+export default {
+	port: env.PORT,
+	fetch(request: Request) {
+		return app.fetch(request);
+	},
+};
