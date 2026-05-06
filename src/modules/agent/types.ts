@@ -61,6 +61,7 @@ export interface AgentResume {
 }
 
 export interface AgentRunInput {
+	userId: string;
 	threadId: string;
 	messages: AgentMessage[];
 	resume?: AgentResume;

@@ -13,6 +13,8 @@ const envSchema = z.object({
 		.pipe(z.number().positive()),
 	ANTHROPIC_API_KEY: z.string().min(1),
 	ANTHROPIC_MODEL: z.string().min(1),
+	MONGODB_URL: z.string().min(1),
+	MONGODB_DB_NAME: z.string().min(1),
 });
 
 export type Env = z.infer<typeof envSchema>;

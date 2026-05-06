@@ -1,0 +1,1 @@
+export { mongoService } from "./mongo";

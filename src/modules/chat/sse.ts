@@ -25,10 +25,11 @@ const newHumanMessage = (content: string): AgentMessage => ({
 	createdAt: new Date().toISOString(),
 });
 
-const toAgentRunInput = (threadId: string, body: ChatRequest): AgentRunInput => {
+const toAgentRunInput = (userId: string, threadId: string, body: ChatRequest): AgentRunInput => {
 	switch (body.type) {
 		case ChatRequestType.ToolAction:
 			return {
+				userId,
 				threadId,
 				messages: [],
 				resume: {
@@ -39,6 +40,7 @@ const toAgentRunInput = (threadId: string, body: ChatRequest): AgentRunInput => 
 			};
 		case ChatRequestType.Message:
 			return {
+				userId,
 				threadId,
 				messages: [newHumanMessage(body.content)],
 			};
@@ -77,11 +79,12 @@ const customEventToSseEvent = (event: CustomEventData): SSEEvent | undefined => 
 };
 
 export async function* streamChatEvents(
+	userId: string,
 	body: ChatRequest,
 	threadId: string,
 	signal: AbortSignal,
 ): AsyncGenerator<SSEEvent> {
-	const input = toAgentRunInput(threadId, body);
+	const input = toAgentRunInput(userId, threadId, body);
 	let approvalRequested = false;
 
   try {
@@ -115,6 +118,7 @@ export async function* streamChatEvents(
 }
 
 export const handleChatStream = async (
+	userId: string,
 	body: ChatRequest,
 	stream: SSEStreamingApi,
 	signal: AbortSignal,
@@ -125,7 +129,7 @@ export const handleChatStream = async (
 		await stream.writeSSE(sseEventToMessage({ type: SSEEventType.Session, threadId }));
 	}
 
-	for await (const event of streamChatEvents(body, threadId, signal)) {
+	for await (const event of streamChatEvents(userId, body, threadId, signal)) {
 		if (signal.aborted) {
 			await stream.writeSSE(
 				sseEventToMessage({

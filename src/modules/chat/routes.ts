@@ -32,7 +32,8 @@ chat.post(
 	zValidator("json", ChatRequestSchema),
 	async (c) => {
 		const body = c.req.valid("json");
-		return streamSSE(c, async (stream) => handleChatStream(body, stream, c.req.raw.signal));
+		const userId = c.req.header("x-user-id") || '1';
+		return streamSSE(c, async (stream) => handleChatStream(userId, body, stream, c.req.raw.signal));
 	},
 );
 

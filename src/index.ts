@@ -1,5 +1,7 @@
 import { app } from "./app";
 import { SERVER } from "./common/constants";
+import { mongoService } from "./common/db";
+import { toErrorMessage } from "./common/errors";
 import { logger } from "./common/utils";
 import { env } from "./config";
 
@@ -27,6 +29,26 @@ logger.info("Server starting", {
 	env: env.ENV,
 	runtime: `${runtime.name} ${runtime.version}`,
 });
+
+await mongoService.connect();
+
+const SHUTDOWN_SIGNALS = ["SIGINT", "SIGTERM"] as const;
+
+const shutdown = async (signal: string): Promise<void> => {
+	logger.info("Server shutting down", { signal });
+	try {
+		await mongoService.disconnect();
+	} catch (error) {
+		logger.error("Failed to disconnect MongoDB", { error: toErrorMessage(error) });
+	}
+	process.exit(0);
+};
+
+for (const signal of SHUTDOWN_SIGNALS) {
+	process.on(signal, () => {
+		void shutdown(signal);
+	});
+}
 
 export default {
 	port: env.PORT,
