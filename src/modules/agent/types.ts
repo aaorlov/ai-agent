@@ -65,6 +65,12 @@ export interface AgentRunInput {
 	threadId: string;
 	messages: AgentMessage[];
 	resume?: AgentResume;
+	/**
+	 * When true, the run resumes the existing thread from its last successful
+	 * checkpoint without applying any new input. Used to retry a failed node
+	 * after the previous run aborted with an error.
+	 */
+	retry?: boolean;
 }
 
 export interface CustomTextDelta {

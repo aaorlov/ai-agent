@@ -40,10 +40,20 @@ export interface GraphInvocation {
 	pendingTools: never[];
 }
 
-export const toGraphInput = (input: AgentRunInput): GraphInvocation | Command => {
-	if (input.resume) {
-		return new Command({ resume: input.resume });
-	}
+/**
+ * Maps an `AgentRunInput` to the value passed to `graph.stream`.
+ *
+ * - `retry` -> `null`: LangGraph convention to resume the thread from its last
+ *   committed checkpoint without mutating state. The failed super-step's
+ *   uncommitted writes were dropped, so the failing node re-executes from its
+ *   prior input.
+ * - `resume` -> `Command({ resume })`: provides the human-in-the-loop value to
+ *   an `interrupt()` call.
+ * - default -> initial state with appended messages.
+ */
+export const toGraphInput = (input: AgentRunInput): GraphInvocation | Command | null => {
+	if (input.retry) return null;
+	if (input.resume) return new Command({ resume: input.resume });
 	return {
 		messages: input.messages,
 		pendingTools: [],

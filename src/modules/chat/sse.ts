@@ -44,6 +44,13 @@ const toAgentRunInput = (userId: string, threadId: string, body: ChatRequest): A
 				threadId,
 				messages: [newHumanMessage(body.content)],
 			};
+		case ChatRequestType.Retry:
+			return {
+				userId,
+				threadId,
+				messages: [],
+				retry: true,
+			};
 	}
 };
 

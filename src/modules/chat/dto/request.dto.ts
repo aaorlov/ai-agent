@@ -17,9 +17,15 @@ const ToolActionSchema = z.object({
 	modifiedArgs: z.record(z.string(), z.unknown()).optional(),
 });
 
+const RetrySchema = z.object({
+	type: z.literal(ChatRequestType.Retry),
+	threadId: z.string(),
+});
+
 export const ChatRequestSchema = z.discriminatedUnion("type", [
 	SendMessageSchema,
 	ToolActionSchema,
+	RetrySchema,
 ]);
 
 export const ThreadIdParamSchema = z.object({
@@ -29,4 +35,5 @@ export const ThreadIdParamSchema = z.object({
 export type ChatRequest = z.infer<typeof ChatRequestSchema>;
 export type SendMessageRequest = z.infer<typeof SendMessageSchema>;
 export type ToolActionRequest = z.infer<typeof ToolActionSchema>;
+export type RetryRequest = z.infer<typeof RetrySchema>;
 export type ThreadIdParam = z.infer<typeof ThreadIdParamSchema>;

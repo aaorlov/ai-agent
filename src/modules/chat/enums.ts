@@ -1,6 +1,7 @@
 export enum ChatRequestType {
 	Message = "message",
 	ToolAction = "tool_action",
+	Retry = "retry",
 }
 
 export enum SSEEventType {
