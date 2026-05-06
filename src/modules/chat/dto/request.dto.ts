@@ -22,6 +22,11 @@ export const ChatRequestSchema = z.discriminatedUnion("type", [
 	ToolActionSchema,
 ]);
 
+export const ThreadIdParamSchema = z.object({
+	threadId: z.uuid(),
+});
+
 export type ChatRequest = z.infer<typeof ChatRequestSchema>;
 export type SendMessageRequest = z.infer<typeof SendMessageSchema>;
 export type ToolActionRequest = z.infer<typeof ToolActionSchema>;
+export type ThreadIdParam = z.infer<typeof ThreadIdParamSchema>;

@@ -4,6 +4,7 @@ import { mongoService } from "./common/db";
 import { toErrorMessage } from "./common/errors";
 import { logger } from "./common/utils";
 import { env } from "./config";
+import { initAgent } from "./modules/agent";
 
 interface RuntimeInfo {
 	readonly name: string;
@@ -31,6 +32,7 @@ logger.info("Server starting", {
 });
 
 await mongoService.connect();
+await initAgent();
 
 const SHUTDOWN_SIGNALS = ["SIGINT", "SIGTERM"] as const;
 

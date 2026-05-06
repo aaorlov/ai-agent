@@ -18,6 +18,10 @@ bun install
 cp .env.example .env   # then fill in ANTHROPIC_API_KEY
 ```
 
+You also need a MongoDB instance reachable at `MONGODB_URL`. The easiest way
+locally is via Docker Compose (see below), which boots both the server and a
+MongoDB container.
+
 ## Scripts
 
 ```bash
@@ -29,6 +33,30 @@ bun run lint      # biome check + fix
 bun test
 ```
 
+## Docker
+
+```bash
+docker compose up --build
+```
+
+Boots two services:
+
+- `mongodb` — MongoDB 7, persisted to a named volume, exposed on `:27017`.
+- `server`  — this app, running `bun run dev` with hot reload (source is
+  bind-mounted). Reachable on `:8000`.
+
+The server reads `ANTHROPIC_API_KEY` (and other vars) from your project-root
+`.env` via Compose interpolation. `MONGODB_URL` is hard-set to
+`mongodb://mongodb:27017` inside the compose network and overrides any
+value in `.env`.
+
+The Dockerfile is multi-stage with two runnable targets:
+
+- `dev`  — full deps + source, runs `bun run dev` (hot reload). Used by
+  `docker compose up`.
+- `prod` — minimal `oven/bun:1-slim` image with only the `bun build` bundle.
+  Build it manually with `docker build --target prod -t ai-agent:prod .`.
+
 ## Environment
 
 | Variable             | Required | Default     |
@@ -37,6 +65,8 @@ bun test
 | `PORT`               | no       | `8000`      |
 | `ANTHROPIC_API_KEY`  | yes      | —           |
 | `ANTHROPIC_MODEL`    | yes      | —           |
+| `MONGODB_URL`        | yes      | —           |
+| `MONGODB_DB_NAME`    | yes      | —           |
 
 ## Endpoints
 
@@ -46,6 +76,7 @@ bun test
 | GET    | `/health`        | Liveness check                               |
 | GET    | `/health/detailed` | Readiness check                            |
 | POST   | `/chat`          | SSE chat stream (message or tool action)     |
+| DELETE | `/chat/:threadId`| Delete all checkpoints for a thread          |
 | GET    | `/openapi.json`  | OpenAPI 3.1 spec                             |
 | GET    | `/docs`          | Scalar API reference UI (non-prod only)      |
 

@@ -1,0 +1,45 @@
+services:
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:${PORT:-8000}"
+    env_file:
+      - .env
+    environment:
+      # Compose-only overrides that must differ from the local `.env`:
+      #   - point at the `mongodb` service on the compose network,
+      #   - force dev mode regardless of what's in `.env`.
+      ENV: dev
+      MONGODB_URL: mongodb://mongodb:27017
+    volumes:
+      # Bind-mount the project for hot reload via `bun run --hot`.
+      - .:/app
+      # Keep container-installed node_modules (Linux binaries) isolated
+      # from the host's (macOS) by overriding with a named volume.
+      - server-node-modules:/app/node_modules
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "${MONGODB_HOST_PORT:-27017}:27017"
+    volumes:
+      - mongodb-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+      
+volumes:
+  mongodb-data:
+  server-node-modules:

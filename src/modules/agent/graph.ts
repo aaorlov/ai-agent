@@ -1,28 +1,13 @@
 import { END, START, StateGraph } from "@langchain/langgraph";
-import { MongoDBSaver, MongoDBStore } from "@langchain/langgraph-checkpoint-mongodb";
-
-import { mongoService } from "@/common/db";
-import { env } from "@/config";
 
 import { StreamMode } from "./enums";
 import { callModel } from "./nodes";
 import { type AgentState, AgentStateAnnotation } from "./state";
+import { checkpointer, store } from "./store";
 import type { AgentRunInput, AgentStreamEvent } from "./types";
 import { toGraphInput } from "./utils";
 
 const STREAM_MODES = [StreamMode.Updates, StreamMode.Custom];
-
-const checkpointer = new MongoDBSaver({
-	client: mongoService.client,
-	dbName: env.MONGODB_DB_NAME,
-});
-
-const store = new MongoDBStore({
-	client: mongoService.client,
-	dbName: env.MONGODB_DB_NAME,
-});
-
-store.start();
 
 const workflow = new StateGraph(AgentStateAnnotation)
 	.addNode("call_model", callModel)
@@ -32,18 +17,6 @@ const workflow = new StateGraph(AgentStateAnnotation)
 export const agentGraph = workflow.compile({ checkpointer, store });
 
 export type AgentGraph = typeof agentGraph;
-
-export const getThreadState = async (
-	threadId: string,
-): Promise<{ values: Partial<AgentState> }> => {
-	const config = { configurable: { thread_id: threadId } };
-	try {
-		const snapshot = await agentGraph.getState(config);
-		return { values: snapshot.values ?? {} };
-	} catch {
-		return { values: {} };
-	}
-};
 
 export async function* streamAgent(
 	input: AgentRunInput,

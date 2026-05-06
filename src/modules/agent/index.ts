@@ -7,11 +7,11 @@ export {
 export {
 	type AgentGraph,
 	agentGraph,
-	getThreadState,
 	streamAgent,
 } from "./graph";
 
 export { type AgentState, AgentStateAnnotation } from "./state";
+export { deleteThread, initAgent } from "./store";
 export type {
 	AgentMessage,
 	AgentResume,
