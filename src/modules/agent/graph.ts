@@ -1,8 +1,14 @@
 import { END, START, StateGraph } from "@langchain/langgraph";
 
-import { StreamMode } from "./enums";
-import { callModel } from "./nodes";
-import { type AgentState, AgentStateAnnotation } from "./state";
+import { AgentNode, StreamMode } from "./enums";
+import {
+	callModel,
+	executeTool,
+	requestApproval,
+	routeAfterCallModel,
+	routeAfterRequestApproval,
+} from "./nodes";
+import { AgentStateAnnotation } from "./state";
 import { checkpointer, store } from "./store";
 import type { AgentRunInput, AgentStreamEvent } from "./types";
 import { toGraphInput } from "./utils";
@@ -10,9 +16,20 @@ import { toGraphInput } from "./utils";
 const STREAM_MODES = [StreamMode.Updates, StreamMode.Custom];
 
 const workflow = new StateGraph(AgentStateAnnotation)
-	.addNode("call_model", callModel)
-	.addEdge(START, "call_model")
-	.addEdge("call_model", END);
+	.addNode(AgentNode.CallModel, callModel)
+	.addNode(AgentNode.ExecuteTool, executeTool)
+	.addNode(AgentNode.RequestApproval, requestApproval)
+	.addEdge(START, AgentNode.CallModel)
+	.addConditionalEdges(AgentNode.CallModel, routeAfterCallModel, [
+		AgentNode.RequestApproval,
+		AgentNode.ExecuteTool,
+		END,
+	])
+	.addConditionalEdges(AgentNode.RequestApproval, routeAfterRequestApproval, [
+		AgentNode.RequestApproval,
+		AgentNode.ExecuteTool,
+	])
+	.addEdge(AgentNode.ExecuteTool, AgentNode.CallModel);
 
 export const agentGraph = workflow.compile({ checkpointer, store });
 

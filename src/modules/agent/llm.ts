@@ -2,7 +2,11 @@ import { ChatAnthropic } from "@langchain/anthropic";
 
 import { env } from "@/config";
 
-export const llm = new ChatAnthropic({
+import { TOOLS } from "./tools";
+
+const baseLlm = new ChatAnthropic({
 	model: env.ANTHROPIC_MODEL,
 	apiKey: env.ANTHROPIC_API_KEY,
 });
+
+export const llm = baseLlm.bindTools([...TOOLS]);

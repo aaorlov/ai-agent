@@ -73,6 +73,14 @@ export interface AgentRunInput {
 	retry?: boolean;
 }
 
+/**
+ * Per-run runtime context set when invoking the graph. Available to nodes
+ * and tools via `LangGraphRunnableConfig.context` / `ToolRuntime.context`.
+ */
+export interface AgentContext {
+	userId: string;
+}
+
 export interface CustomTextDelta {
 	type: CustomEventType.TextDelta;
 	content: string;

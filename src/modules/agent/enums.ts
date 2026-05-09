@@ -21,3 +21,10 @@ export enum StreamMode {
 	Updates = "updates",
 	Custom = "custom",
 }
+
+/** Names of the nodes registered on the agent graph. Single source of truth. */
+export enum AgentNode {
+	CallModel = "call_model",
+	ExecuteTool = "execute_tool",
+	RequestApproval = "request_approval",
+}
