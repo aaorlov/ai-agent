@@ -1,3 +1,4 @@
+import type { MessagesEventData, UpdatesEventData } from "@langchain/langgraph";
 import type { SSEStreamingApi } from "hono/streaming";
 
 import { toErrorMessage } from "@/common/errors";
@@ -5,12 +6,8 @@ import {
 	type AgentMessage,
 	type AgentRunInput,
 	type AgentState,
-	type CustomEventData,
-	CustomEventType,
 	MessageRole,
-	StreamMode,
 	streamAgent,
-	type ToolCall,
 } from "@/modules/agent";
 
 import type { ChatRequest } from "./dto/request.dto";
@@ -54,36 +51,34 @@ const toAgentRunInput = (userId: string, threadId: string, body: ChatRequest): A
 	}
 };
 
-function* stateUpdateToSseEvents(chunk: Record<string, Partial<AgentState>>): Generator<SSEEvent> {
-	for (const update of Object.values(chunk)) {
-		if (!update || typeof update !== "object") continue;
+function* updateToSseEvents(data: UpdatesEventData): Generator<SSEEvent> {
+	// Graph nodes return Partial<AgentState>; the protocol erases that to
+	// Record<string, any>, so re-narrow at this boundary.
+	const update = data.values as Partial<AgentState>;
 
-		if (Array.isArray(update.retrievedContext) && update.retrievedContext.length > 0) {
-			yield {
-				type: SSEEventType.ContextRetrieved,
-				documents: update.retrievedContext.map((doc) => ({
-					id: doc.id,
-					content: doc.content,
-					metadata: doc.metadata,
-					score: doc.score,
-				})),
-			};
-		}
+	if (Array.isArray(update.retrievedContext) && update.retrievedContext.length > 0) {
+		yield {
+			type: SSEEventType.ContextRetrieved,
+			documents: update.retrievedContext.map((doc) => ({
+				id: doc.id,
+				content: doc.content,
+				metadata: doc.metadata,
+				score: doc.score,
+			})),
+		};
+	}
 
-		if (Array.isArray(update.messages)) {
-			for (const message of update.messages) {
-				yield { type: SSEEventType.Message, message };
-			}
+	if (Array.isArray(update.messages)) {
+		for (const message of update.messages) {
+			yield { type: SSEEventType.Message, message };
 		}
 	}
 }
 
-const customEventToSseEvent = (event: CustomEventData): SSEEvent | undefined => {
-	switch (event.type) {
-		case CustomEventType.TextDelta:
-			return { type: SSEEventType.TextDelta, content: event.content, id: event.id };
-	}
-};
+const isApprovalRequest = (event: SSEEvent): boolean =>
+	event.type === SSEEventType.Message
+	&& event.message.role === MessageRole.Assistant
+	&& (event.message.toolCalls?.some((toolCall) => toolCall.requiresApproval) ?? false);
 
 export async function* streamChatEvents(
 	userId: string,
@@ -93,26 +88,34 @@ export async function* streamChatEvents(
 ): AsyncGenerator<SSEEvent> {
 	const input = toAgentRunInput(userId, threadId, body);
 	let approvalRequested = false;
+	let messageId: string | undefined;
 
-  try {
-    for await (const event of streamAgent(input, { signal })) {
-      // Stream custom / intermediate events, not a part of chat history
-      if (event.mode === StreamMode.Custom) {
-        const sseEvent = customEventToSseEvent(event.data);
-        if(sseEvent) yield sseEvent;
-      }
+	try {
+		const run = await streamAgent(input, { signal });
+		for await (const event of run) {
+			if (event.method === "updates") {
+				for (const sseEvent of updateToSseEvents(event.params.data as UpdatesEventData)) {
+					if (isApprovalRequest(sseEvent)) approvalRequested = true;
+					yield sseEvent;
+				}
+				continue;
+			}
 
-      if(event.mode === StreamMode.Updates) {
-        for (const ev of stateUpdateToSseEvents(event.data)) {
-          if (
-            ev.type === SSEEventType.Message
-            && ev.message.role === MessageRole.Assistant 
-            && ev.message?.toolCalls?.some((toolCall: ToolCall) => toolCall.requiresApproval)
-          ) approvalRequested = true;
-          yield ev;
-        }
-      }
-    }
+			if (event.method === "messages") {
+				const data = event.params.data as MessagesEventData;
+				if (data.event === "message-start") {
+					messageId = data.id;
+					continue;
+				}
+				if (
+					data.event === "content-block-delta"
+					&& data.delta.type === "text-delta"
+					&& messageId
+				) {
+					yield { type: SSEEventType.TextDelta, content: data.delta.text, id: messageId };
+				}
+			}
+		}
 
 		yield {
 			type: SSEEventType.Finish,

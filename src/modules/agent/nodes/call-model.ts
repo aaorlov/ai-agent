@@ -1,12 +1,12 @@
 import { type AIMessageChunk, type BaseMessage, SystemMessage } from "@langchain/core/messages";
 import { concat } from "@langchain/core/utils/stream";
-import { END, type LangGraphRunnableConfig } from "@langchain/langgraph";
+import { END } from "@langchain/langgraph";
 
-import { AgentNode, CustomEventType, MessageRole } from "../enums";
+import { AgentNode, MessageRole } from "../enums";
 import { llm } from "../llm";
 import type { AgentState } from "../state";
 import { TOOLS_REQUIRING_APPROVAL } from "../tools";
-import type { AssistantMessage, PendingTool, ToolCall } from "../types";
+import type { AssistantMessage, ToolCall } from "../types";
 import { toLangChainMessage } from "../utils";
 
 const toLangChainHistory = (state: AgentState): BaseMessage[] => {
@@ -20,14 +20,11 @@ const toLangChainHistory = (state: AgentState): BaseMessage[] => {
 	return history;
 };
 
-const extractContent = (chunk: AIMessageChunk | undefined): string => {
-	if (!chunk) return "";
-	if (typeof chunk.content === "string") return chunk.content;
-	return JSON.stringify(chunk.content);
-};
+const extractContent = (chunk: AIMessageChunk): string =>
+	typeof chunk.content === "string" ? chunk.content : JSON.stringify(chunk.content);
 
-const extractToolCalls = (chunk: AIMessageChunk | undefined): ToolCall[] | undefined => {
-	if (!chunk?.tool_calls?.length) return undefined;
+const extractToolCalls = (chunk: AIMessageChunk): ToolCall[] | undefined => {
+	if (!chunk.tool_calls?.length) return undefined;
 	return chunk.tool_calls.map((call) => ({
 		toolCallId: call.id ?? crypto.randomUUID(),
 		toolName: call.name,
@@ -36,39 +33,29 @@ const extractToolCalls = (chunk: AIMessageChunk | undefined): ToolCall[] | undef
 	}));
 };
 
-const streamLLM = async (
-	history: BaseMessage[],
-	config: LangGraphRunnableConfig,
-): Promise<AIMessageChunk | undefined> => {
+/**
+ * Streams the LLM to drive token-level emissions on the graph's `messages`
+ * channel (consumed via `streamEvents({ version: "v3" })` at the boundary),
+ * while locally aggregating the chunks into a single `AIMessageChunk` for
+ * tool-call and content extraction.
+ */
+const aggregateLLM = async (history: BaseMessage[]): Promise<AIMessageChunk | undefined> => {
 	let aggregated: AIMessageChunk | undefined;
-	const stream = await llm.stream(history);
-
-	for await (const chunk of stream) {
+	for await (const chunk of await llm.stream(history)) {
 		aggregated = aggregated ? concat(aggregated, chunk) : chunk;
-		// stream if not a tool call, or mark somehow that response is a tool call
-		if (chunk.content) {
-			config.writer?.({
-				type: CustomEventType.TextDelta,
-				content: chunk.content,
-				messageId: aggregated.id,
-			});
-		}
 	}
 	return aggregated;
 };
 
-export const callModel = async (
-	state: AgentState,
-	config: LangGraphRunnableConfig,
-): Promise<Partial<AgentState>> => {
+export const callModel = async (state: AgentState): Promise<Partial<AgentState>> => {
 	const history = toLangChainHistory(state);
-	const aggregated = await streamLLM(history, config);
-	const toolCalls = extractToolCalls(aggregated);
+	const aggregated = await aggregateLLM(history);
+	const toolCalls = aggregated ? extractToolCalls(aggregated) : undefined;
 
 	const message: AssistantMessage = {
 		id: aggregated?.id ?? crypto.randomUUID(),
 		role: MessageRole.Assistant,
-		content: extractContent(aggregated),
+		content: aggregated ? extractContent(aggregated) : "",
 		createdAt: new Date().toISOString(),
 		...(toolCalls ? { toolCalls } : {}),
 	};

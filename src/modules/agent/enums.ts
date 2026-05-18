@@ -13,15 +13,6 @@ export enum ToolAction {
 	Error = "error",
 }
 
-export enum CustomEventType {
-	TextDelta = "text-delta",
-}
-
-export enum StreamMode {
-	Updates = "updates",
-	Custom = "custom",
-}
-
 /** Names of the nodes registered on the agent graph. Single source of truth. */
 export enum AgentNode {
 	CallModel = "call_model",

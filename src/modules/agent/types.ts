@@ -1,5 +1,4 @@
-import type { CustomEventType, MessageRole, StreamMode, ToolAction } from "./enums";
-import type { AgentState } from "./state";
+import type { MessageRole, ToolAction } from "./enums";
 
 interface MessageBase {
 	id: string;
@@ -81,14 +80,3 @@ export interface AgentContext {
 	userId: string;
 }
 
-export interface CustomTextDelta {
-	type: CustomEventType.TextDelta;
-	content: string;
-	id: string;
-}
-
-export type CustomEventData = CustomTextDelta;
-
-export type AgentStreamEvent =
-	| { mode: StreamMode.Updates; data: Record<string, Partial<AgentState>> }
-	| { mode: StreamMode.Custom; data: CustomEventData };
