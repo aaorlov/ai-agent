@@ -45,6 +45,17 @@ export const AgentStateAnnotation = Annotation.Root({
 		reducer: (_, right) => right ?? "",
 		default: () => "",
 	}),
+
+	/**
+	 * Snapshot of the user's `general_memory` entries loaded for the current
+	 * turn. Refreshed by `load_memory` whenever the graph restarts from START
+	 * (i.e. on each new user input); resumes from interrupts keep the prior
+	 * snapshot. Strings only — the LLM never sees per-item metadata.
+	 */
+	longTermMemories: Annotation<string[]>({
+		reducer: (_, right) => right ?? [],
+		default: () => [],
+	}),
 });
 
 export type AgentState = typeof AgentStateAnnotation.State;

@@ -4,6 +4,7 @@ import { AgentNode } from "./enums";
 import {
 	callModel,
 	executeTool,
+	loadMemory,
 	requestApproval,
 	routeAfterCallModel,
 	routeAfterRequestApproval,
@@ -14,10 +15,12 @@ import type { AgentRunInput } from "./types";
 import { toGraphInput } from "./utils";
 
 const workflow = new StateGraph(AgentStateAnnotation)
+	.addNode(AgentNode.LoadMemory, loadMemory)
 	.addNode(AgentNode.CallModel, callModel)
 	.addNode(AgentNode.ExecuteTool, executeTool)
 	.addNode(AgentNode.RequestApproval, requestApproval)
-	.addEdge(START, AgentNode.CallModel)
+	.addEdge(START, AgentNode.LoadMemory)
+	.addEdge(AgentNode.LoadMemory, AgentNode.CallModel)
 	.addConditionalEdges(AgentNode.CallModel, routeAfterCallModel, [
 		AgentNode.RequestApproval,
 		AgentNode.ExecuteTool,

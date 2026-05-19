@@ -9,10 +9,20 @@ import { TOOLS_REQUIRING_APPROVAL } from "../tools";
 import type { AssistantMessage, ToolCall } from "../types";
 import { toLangChainMessage } from "../utils";
 
+const renderMemoriesSystemMessage = (memories: readonly string[]): SystemMessage =>
+	new SystemMessage({
+		content: `Known facts, preferences, and instructions about the user (from memories). Treat as stable context; do not restate unless relevant:\n${memories
+			.map((memory) => `- ${memory}`)
+			.join("\n")}`,
+	});
+
 const toLangChainHistory = (state: AgentState): BaseMessage[] => {
 	const history: BaseMessage[] = [];
 	if (state.systemPrompt) {
 		history.push(new SystemMessage({ content: state.systemPrompt }));
+	}
+	if (state.longTermMemories.length > 0) {
+		history.push(renderMemoriesSystemMessage(state.longTermMemories));
 	}
 	for (const message of state.messages) {
 		history.push(toLangChainMessage(message));

@@ -22,7 +22,10 @@ export const CHECKPOINT_WRITES_TTL_SECONDS = 7 * SECONDS_IN_DAY;
 export const MAX_HISTORY_MESSAGES = 30;
 
 /**
- * Sub-namespace under each user in the long-term store for facts the LLM
- * persists via the `save_memory` tool. Full namespace: `[userId, MEMORIES_NAMESPACE]`.
+ * Hard cap on how many entries we keep per user in any single memory bucket
+ * (see `Memories` in `./enums`). The `save_memory` tool evicts the oldest
+ * entries (FIFO by `createdAt`) when at the cap before writing a new one;
+ * `load_memory` also requests at most this many items to bound the per-turn
+ * prompt cost.
  */
-export const MEMORIES_NAMESPACE = "memories";
+export const MAX_MEMORIES_PER_USER = 20;

@@ -6,7 +6,8 @@ import { z } from "zod";
 import { AppError } from "@/common/errors";
 import { logger } from "@/common/utils";
 
-import { MEMORIES_NAMESPACE } from "../constants";
+import { MAX_MEMORIES_PER_USER } from "../constants";
+import { Memories } from "../enums";
 import type { AgentContext } from "../types";
 
 const SaveMemoryInputSchema = z.object({
@@ -24,6 +25,34 @@ interface SavedMemory extends Record<string, unknown> {
 }
 
 /**
+ * Drops the oldest entries (by `createdAt`) so that after writing one new
+ * memory the user's stored count is `<= MAX_MEMORIES_PER_USER`. No-op when
+ * the user is below the cap. The search fetches `MAX + 1` to detect — and
+ * self-heal — any legacy overflow from before this cap existed.
+ */
+const evictOldestIfFull = async (
+	store: BaseStore,
+	namespace: readonly string[],
+): Promise<void> => {
+	const existing = await store.search([...namespace], {
+		limit: MAX_MEMORIES_PER_USER + 1,
+	});
+	if (existing.length < MAX_MEMORIES_PER_USER) return;
+
+	const sortedOldestFirst = [...existing].sort((a, b) => {
+		const aCreatedAt = (a.value as SavedMemory).createdAt ?? "";
+		const bCreatedAt = (b.value as SavedMemory).createdAt ?? "";
+		return aCreatedAt.localeCompare(bCreatedAt);
+	});
+	const evictCount = existing.length - MAX_MEMORIES_PER_USER + 1;
+	await Promise.all(
+		sortedOldestFirst
+			.slice(0, evictCount)
+			.map((item) => store.delete(item.namespace, item.key)),
+	);
+};
+
+/**
  * Subset of `LangGraphRunnableConfig` that the tool actually depends on.
  * Declared as a structural supertype so it satisfies `tool()`'s overload
  * constraint (the second parameter must accept `ToolRunnableConfig`) while
@@ -36,6 +65,11 @@ interface AgentToolConfig extends RunnableConfig {
 
 export const saveMemoryTool = tool(
 	async ({ content }, config: AgentToolConfig): Promise<string> => {
+		if(!content) {
+			logger.info("Saved long-term memory: no content to save");
+			return "No content to save";
+		}
+
 		const userId = config.context?.userId;
 		if (!userId) {
 			throw new AppError("save_memory: userId missing from runtime context");
@@ -46,13 +80,16 @@ export const saveMemoryTool = tool(
 			throw new AppError("save_memory: long-term store is unavailable");
 		}
 
+		const namespace = [userId, Memories.General] as const;
+		await evictOldestIfFull(store, namespace);
+
 		const memoryId = crypto.randomUUID();
 		const memory: SavedMemory = {
 			content,
 			createdAt: new Date().toISOString(),
 		};
 
-		await store.put([userId, MEMORIES_NAMESPACE], memoryId, memory);
+		await store.put([...namespace], memoryId, memory);
 
 		logger.info("Saved long-term memory", { userId, memoryId });
 
@@ -61,7 +98,7 @@ export const saveMemoryTool = tool(
 	{
 		name: "save_memory",
 		description:
-			"Persist a piece of information to the user's long-term memory so it can be recalled in future conversations. Use this when the user shares a stable preference, fact, or instruction worth remembering across sessions. Do not use for transient context that only matters within the current thread.",
+			"Persist a piece of general information to the user's long-term memory so it can be recalled in future conversations across any topic. Use this when the user shares a stable preference, fact, or instruction worth remembering across sessions. Do not use for transient context that only matters within the current thread. Storage is capped per user; the oldest entry is evicted when full.",
 		schema: SaveMemoryInputSchema,
 	},
 );
