@@ -1,5 +1,4 @@
-import { type AIMessageChunk, type BaseMessage, SystemMessage } from "@langchain/core/messages";
-import { concat } from "@langchain/core/utils/stream";
+import { type AIMessage, type BaseMessage, SystemMessage } from "@langchain/core/messages";
 import { END } from "@langchain/langgraph";
 
 import { AgentNode, MessageRole } from "../enums";
@@ -30,12 +29,12 @@ const toLangChainHistory = (state: AgentState): BaseMessage[] => {
 	return history;
 };
 
-const extractContent = (chunk: AIMessageChunk): string =>
-	typeof chunk.content === "string" ? chunk.content : JSON.stringify(chunk.content);
+const extractContent = (message: AIMessage): string =>
+	typeof message.content === "string" ? message.content : JSON.stringify(message.content);
 
-const extractToolCalls = (chunk: AIMessageChunk): ToolCall[] | undefined => {
-	if (!chunk.tool_calls?.length) return undefined;
-	return chunk.tool_calls.map((call) => ({
+const extractToolCalls = (message: AIMessage): ToolCall[] | undefined => {
+	if (!message.tool_calls?.length) return undefined;
+	return message.tool_calls.map((call) => ({
 		toolCallId: call.id ?? crypto.randomUUID(),
 		toolName: call.name,
 		args: call.args ?? {},
@@ -44,28 +43,25 @@ const extractToolCalls = (chunk: AIMessageChunk): ToolCall[] | undefined => {
 };
 
 /**
- * Streams the LLM to drive token-level emissions on the graph's `messages`
- * channel (consumed via `streamEvents({ version: "v3" })` at the boundary),
- * while locally aggregating the chunks into a single `AIMessageChunk` for
- * tool-call and content extraction.
+ * Calls the LLM via `invoke`, not `stream`. `invoke` goes through Core's
+ * `_generateUncached`, which — when a handler with
+ * `lc_prefer_chat_model_stream_events` is present (the LangGraph v2 messages
+ * handler always sets this) and the model implements `_streamChatModelEvents`
+ * (ChatAnthropic does) — internally streams and dispatches per-chunk
+ * `handleChatModelStreamEvent` callbacks. Those become per-token
+ * `content-block-delta` events on the graph's `messages` channel that the
+ * SSE layer forwards as `TextDelta`s. Using `.stream()` here silently falls
+ * back to a path that emits one synthesized full-text delta at end-of-call.
  */
-const aggregateLLM = async (history: BaseMessage[]): Promise<AIMessageChunk | undefined> => {
-	let aggregated: AIMessageChunk | undefined;
-	for await (const chunk of await llm.stream(history)) {
-		aggregated = aggregated ? concat(aggregated, chunk) : chunk;
-	}
-	return aggregated;
-};
-
 export const callModel = async (state: AgentState): Promise<Partial<AgentState>> => {
 	const history = toLangChainHistory(state);
-	const aggregated = await aggregateLLM(history);
-	const toolCalls = aggregated ? extractToolCalls(aggregated) : undefined;
+	const result = await llm.invoke(history);
+	const toolCalls = extractToolCalls(result);
 
 	const message: AssistantMessage = {
-		id: aggregated?.id ?? crypto.randomUUID(),
+		id: result.id ?? crypto.randomUUID(),
 		role: MessageRole.Assistant,
-		content: aggregated ? extractContent(aggregated) : "",
+		content: extractContent(result),
 		createdAt: new Date().toISOString(),
 		...(toolCalls ? { toolCalls } : {}),
 	};
