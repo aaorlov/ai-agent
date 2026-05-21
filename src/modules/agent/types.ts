@@ -70,6 +70,14 @@ export interface AgentRunInput {
 	 * after the previous run aborted with an error.
 	 */
 	retry?: boolean;
+	/**
+	 * Messages to seed state with before applying `messages`. Used by the
+	 * threads layer to rebuild working memory from the message log when the
+	 * checkpoint TTL has expired, and to inject synthetic `Expired` tool
+	 * results that close out abandoned approvals. Order is preserved:
+	 * `[...hydrationMessages, ...messages]` is what the reducer sees.
+	 */
+	hydrationMessages?: AgentMessage[];
 }
 
 /**

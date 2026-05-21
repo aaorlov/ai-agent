@@ -8,8 +8,8 @@ import { Environment, HttpStatus, Routes } from "./common/enums";
 import { HttpError, toErrorMessage } from "./common/errors";
 import { logger } from "./common/utils";
 import { env } from "./config";
-import { chat } from "./modules/chat";
 import { health } from "./modules/health";
+import { threads } from "./modules/threads";
 import { mountOpenApi } from "./openapi";
 
 const app = new Hono();
@@ -36,7 +36,7 @@ app.onError((err, c) => {
 app.notFound((c) => c.json({ error: "Not Found", path: c.req.path }, HttpStatus.NotFound));
 
 app.route(Routes.Health, health);
-app.route(Routes.Chat, chat);
+app.route(Routes.Threads, threads);
 
 app.get(Routes.Root, (c) =>
 	c.json({
@@ -45,7 +45,7 @@ app.get(Routes.Root, (c) =>
 		description: SERVER.description,
 		endpoints: {
 			health: Routes.Health,
-			chat: `${Routes.Chat} (POST, SSE)`,
+			threads: `${Routes.Threads} (POST stream, GET history, DELETE)`,
 			docs: Routes.Docs,
 			openapi: Routes.OpenApi,
 		},

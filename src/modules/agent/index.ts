@@ -1,12 +1,19 @@
+export { MAX_HISTORY_MESSAGES } from "./constants";
 export { MessageRole, ToolAction } from "./enums";
 export {
 	type AgentGraph,
 	agentGraph,
 	streamAgent,
 } from "./graph";
+export {
+	buildExpiredToolMessages,
+	findOrphanToolCalls,
+	getCheckpointState,
+	hasCheckpoint,
+} from "./runtime";
 
 export { type AgentState, AgentStateAnnotation } from "./state";
-export { deleteThread, initAgent } from "./store";
+export { deleteCheckpoint, initAgent } from "./store";
 export type {
 	AgentMessage,
 	AgentResume,

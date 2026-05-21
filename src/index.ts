@@ -5,6 +5,7 @@ import { toErrorMessage } from "./common/errors";
 import { logger } from "./common/utils";
 import { env } from "./config";
 import { initAgent } from "./modules/agent";
+import { initThreads } from "./modules/threads";
 
 interface RuntimeInfo {
 	readonly name: string;
@@ -32,7 +33,7 @@ logger.info("Server starting", {
 });
 
 await mongoService.connect();
-await initAgent();
+await Promise.all([initAgent(), initThreads()]);
 
 const SHUTDOWN_SIGNALS = ["SIGINT", "SIGTERM"] as const;
 

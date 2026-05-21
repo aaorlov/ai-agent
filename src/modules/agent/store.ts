@@ -51,8 +51,9 @@ export const initAgent = async (): Promise<void> => {
 };
 
 /**
- * Removes all checkpoints (full state snapshots) and pending writes for the
- * given thread. Idempotent — deleting a non-existent thread is a no-op.
+ * Removes the LangGraph checkpoint (full state snapshots) and pending writes
+ * for the given thread — i.e. the agent's working memory. Does NOT remove
+ * persisted message history; that lives in the threads module. Idempotent.
  */
-export const deleteThread = (threadId: string): Promise<void> =>
+export const deleteCheckpoint = (threadId: string): Promise<void> =>
 	checkpointer.deleteThread(threadId);
