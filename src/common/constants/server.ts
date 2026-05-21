@@ -23,7 +23,7 @@ export const OPENAPI: OpenApiConfig = {
 	license: { name: "MIT" },
 	tags: [
 		{ name: "Health", description: "Health check endpoints" },
-		{ name: "Chat", description: "Chat streaming endpoints" },
+		{ name: "Threads", description: "Thread streaming, history, and management" },
 	],
 	docsTheme: "purple",
 };

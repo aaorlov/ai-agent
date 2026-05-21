@@ -1,6 +1,6 @@
 # AI Agent
 
-A Hono server with Zod validation and LangGraph integration. Streams chat
+A Hono server with Zod validation and LangGraph integration. Streams thread
 responses over Server-Sent Events.
 
 ## Stack
@@ -70,17 +70,19 @@ The Dockerfile is multi-stage with two runnable targets:
 
 ## Endpoints
 
-| Method | Path             | Description                                  |
-| ------ | ---------------- | -------------------------------------------- |
-| GET    | `/`              | Service metadata                             |
-| GET    | `/health`        | Liveness check                               |
-| GET    | `/health/detailed` | Readiness check                            |
-| POST   | `/chat`          | SSE chat stream (message or tool action)     |
-| DELETE | `/chat/:threadId`| Delete all checkpoints for a thread          |
-| GET    | `/openapi.json`  | OpenAPI 3.1 spec                             |
-| GET    | `/docs`          | Scalar API reference UI (non-prod only)      |
+| Method | Path                            | Description                                          |
+| ------ | ------------------------------- | ---------------------------------------------------- |
+| GET    | `/`                             | Service metadata                                     |
+| GET    | `/health`                       | Liveness check                                       |
+| GET    | `/health/detailed`              | Readiness check                                      |
+| POST   | `/threads`                      | SSE thread stream (message or tool action)           |
+| GET    | `/threads`                      | List the user's threads (summaries)                  |
+| GET    | `/threads/:threadId/messages`   | Paginated messages of a thread                       |
+| DELETE | `/threads/:threadId`            | Delete a thread (history + agent checkpoint)         |
+| GET    | `/openapi.json`                 | OpenAPI 3.1 spec                                     |
+| GET    | `/docs`                         | Scalar API reference UI (non-prod only)              |
 
-### `POST /chat`
+### `POST /threads`
 
 Accepts a discriminated union body — either a new/continued message, or an
 action on a pending tool call:
@@ -113,7 +115,7 @@ src/
 ├── constants/         # named values grouped by context
 └── modules/
     ├── agent/         # LangGraph agent + LLM
-    ├── chat/          # SSE chat endpoint
+    ├── threads/       # SSE thread endpoint + message log
     └── health/        # liveness / readiness
 ```
 

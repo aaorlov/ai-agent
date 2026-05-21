@@ -12,7 +12,7 @@ Flow covered: new thread → user question → tool execution → approval reque
 ## Enums used in this doc
 
 - **Agent** (`@/modules/agent`): `MessageRole` (User, Assistant, Tool, System), `MessagePartType` (Text, ToolInvocation, ToolResult), `ToolActionResult` (Approved, Cancelled, Skipped), `AgentStatusPhase` (Planning, Thinking, Executing, ToolResult).
-- **Chat** (`@/modules/chat/events`): `SSEEventType` (Session, Status, TextDelta, TextEnd, ToolCall, ToolResult, ApprovalRequested, Error, Finish), `StatusCode` (Planning, Thinking, Executing, ToolResult), `FinishReason` (Stop, Length, ToolCall, Error, Abort).
+- **Threads** (`@/modules/threads/events`): `SSEEventType` (Session, Status, TextDelta, TextEnd, ToolCall, ToolResult, ApprovalRequested, Error, Finish), `StatusCode` (Planning, Thinking, Executing, ToolResult), `FinishReason` (Stop, Length, ToolCall, Error, Abort).
 
 ---
 
@@ -47,7 +47,7 @@ Flow covered: new thread → user question → tool execution → approval reque
 
 **User sends (UI → server):**
 ```json
-POST /chat
+POST /threads
 {
   "messages": [
     { "id": "msg-1", "role": "user", "content": "Please run the approval tool", "parts": [] }
@@ -164,7 +164,7 @@ Stream stops (interrupt). No further SSE until the user sends a new request.
 }
 ```
 
-**Reopening the thread:** Load `getThreadState(threadId).values.messages` → last message is the assistant tool invocation (pending). Use `values.pendingTool` to show the approval card and route the next request.
+**Reopening the thread:** Load `getCheckpointState(threadId).messages` → last message is the assistant tool invocation (pending). Use `pendingTools` to show the approval card and route the next request.
 
 ---
 
@@ -174,7 +174,7 @@ Stream stops (interrupt). No further SSE until the user sends a new request.
 
 **User sends (UI → server):**
 ```json
-POST /chat
+POST /threads
 {
   "threadId": "generated-uuid",
   "messages": [
@@ -292,7 +292,7 @@ Server uses the **last** message’s tool-result part to build `resume` and invo
 
 **User sends (UI → server):**
 ```json
-POST /chat
+POST /threads
 {
   "threadId": "generated-uuid",
   "messages": [
@@ -331,7 +331,7 @@ POST /chat
 ## Summary: messages and state by phase
 
 | Phase   | messages in thread | pendingTool | status   |
-|---------|--------------------|------------|----------|
+|---------|--------------------|-------------|----------|
 | 1       | [user]             | null       | null     |
 | 2       | [user]             | null       | AgentStatusPhase.Planning |
 | 3       | [user]             | null       | AgentStatusPhase.Thinking |

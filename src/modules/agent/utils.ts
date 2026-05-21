@@ -55,7 +55,7 @@ export const toGraphInput = (input: AgentRunInput): GraphInvocation | Command | 
 	if (input.retry) return null;
 	if (input.resume) return new Command({ resume: input.resume });
 	return {
-		messages: input.messages,
+		messages: [...(input.hydrationMessages ?? []), ...input.messages],
 		pendingTools: [],
 	};
 };

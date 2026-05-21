@@ -39,7 +39,7 @@ export const requestApproval = async (
 	const pending = firstPending(state.pendingTools);
 
 	// `interrupt` returns whatever the client sends in `Command({ resume })`.
-	// In this app the chat endpoint always supplies an `AgentResume` payload.
+	// In this app the threads endpoint always supplies an `AgentResume` payload.
 	const resume: AgentResume | undefined = interrupt({
 		toolCallId: pending.toolCallId,
 		toolName: pending.toolName,

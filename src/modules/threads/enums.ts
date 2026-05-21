@@ -1,4 +1,4 @@
-export enum ChatRequestType {
+export enum ThreadRequestType {
 	Message = "message",
 	ToolAction = "tool_action",
 	Retry = "retry",

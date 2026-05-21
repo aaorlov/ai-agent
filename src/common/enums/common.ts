@@ -7,7 +7,7 @@ export enum Environment {
 export enum Routes {
 	Root = "/",
 	Health = "/health",
-	Chat = "/chat",
+	Threads = "/threads",
 	OpenApi = "/openapi.json",
 	Docs = "/docs",
 }

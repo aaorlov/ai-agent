@@ -11,6 +11,7 @@ export enum ToolAction {
 	Cancelled = "cancelled",
 	Skipped = "skipped",
 	Error = "error",
+	Expired = "expired",
 }
 
 /** Names of the nodes registered on the agent graph. Single source of truth. */

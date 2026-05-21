@@ -1,4 +1,5 @@
 import type { LangGraphRunnableConfig } from "@langchain/langgraph";
+import type { SearchItem } from "@langchain/langgraph-checkpoint";
 
 import { AppError } from "@/common/errors";
 import { logger } from "@/common/utils";
@@ -13,11 +14,10 @@ const extractUserId = (context: unknown): string | undefined => {
 	return typeof userId === "string" && userId.length > 0 ? userId : undefined;
 };
 
-const extractMemory = (value: unknown): { content: string; createdAt: string } | null => {
-	if (typeof value !== "object" || value === null) return null;
-	const { content, createdAt } = value as { content?: unknown; createdAt?: unknown };
-	if (typeof content !== "string" || content.length === 0) return null;
-	return { content, createdAt: typeof createdAt === "string" ? createdAt : "" };
+const extractMemory = (res: Array<string>, item: SearchItem): Array<string> => {
+	const content = item?.value?.content;
+	if (typeof content !== "string" || content.length === 0) return res;
+	return [...res, content];
 };
 
 /**
@@ -44,15 +44,13 @@ export const loadMemory = async (
 		return { longTermMemories: [] };
 	}
 
-	const items = await store.search([userId, Memories.General], {
+	const items: Array<SearchItem> = await store.search([userId, Memories.General], {
 		limit: MAX_MEMORIES_PER_USER,
 	});
 
 	const memories = items
-		.map((item) => extractMemory(item.value))
-		.filter((memory): memory is { content: string; createdAt: string } => memory !== null)
-		.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-		.map((memory) => memory.content);
+		.sort((a, b) => a?.value?.createdAt?.localeCompare(b?.value?.createdAt ?? "") ?? 0)
+		.reduce(extractMemory, []);
 
 	return { longTermMemories: memories };
 };

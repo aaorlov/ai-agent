@@ -1,19 +1,27 @@
 import { Annotation } from "@langchain/langgraph";
 
 import { MAX_HISTORY_MESSAGES } from "./constants";
+import { MessageRole } from "./enums";
 import type { AgentMessage, PendingTool, RetrievedDocument } from "./types";
 
+/**
+ * Tail-trims `messages` to `MAX_HISTORY_MESSAGES`, advancing the cut further
+ * when needed so the kept window never starts with a `Tool` message whose
+ * matching assistant `tool_use` was dropped. Without this guard Anthropic
+ * rejects the next call with "tool_result without matching tool_use".
+ */
 const appendCappedMessages = (
 	left: AgentMessage[],
 	right: AgentMessage | AgentMessage[],
 ): AgentMessage[] => {
 	const next = left.concat(Array.isArray(right) ? right : [right]);
-	// Naive tail trim: callers should be aware that this can break tool_use /
-	// tool_result pairing if a cut falls between them. Safe today because the
-	// graph doesn't yet produce tool-call sequences; revisit when tools land.
-	return next.length > MAX_HISTORY_MESSAGES
-		? next.slice(-MAX_HISTORY_MESSAGES)
-		: next;
+	if (next.length <= MAX_HISTORY_MESSAGES) return next;
+
+	let cutIndex = next.length - MAX_HISTORY_MESSAGES;
+	while (cutIndex < next.length && next[cutIndex]?.role === MessageRole.Tool) {
+		cutIndex++;
+	}
+	return next.slice(cutIndex);
 };
 
 export const AgentStateAnnotation = Annotation.Root({
