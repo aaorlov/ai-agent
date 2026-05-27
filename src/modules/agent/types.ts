@@ -59,25 +59,25 @@ export interface AgentResume {
 	modifiedArgs?: Record<string, unknown>;
 }
 
+/**
+ * Single-shot input describing what the threads layer wants the graph to do
+ * for the next turn. Mutually-exclusive modes:
+ *
+ *  - `retry`: replay the last super-step from the live checkpoint, no input.
+ *  - `resume`: resolve a pending `interrupt()` (e.g. tool-call approval).
+ *  - default: append `messages` to graph state and run a normal turn.
+ *
+ * In the default mode `messages` is whatever the graph reducer should see for
+ * this turn. The caller decides whether to pass just the new human message
+ * (healthy checkpoint exists) or to also re-seed prior history (no checkpoint
+ * yet — restored from the persisted message log).
+ */
 export interface AgentRunInput {
 	userId: string;
 	threadId: string;
 	messages: AgentMessage[];
 	resume?: AgentResume;
-	/**
-	 * When true, the run resumes the existing thread from its last successful
-	 * checkpoint without applying any new input. Used to retry a failed node
-	 * after the previous run aborted with an error.
-	 */
 	retry?: boolean;
-	/**
-	 * Messages to seed state with before applying `messages`. Used by the
-	 * threads layer to rebuild working memory from the message log when the
-	 * checkpoint TTL has expired, and to inject synthetic `Expired` tool
-	 * results that close out abandoned approvals. Order is preserved:
-	 * `[...hydrationMessages, ...messages]` is what the reducer sees.
-	 */
-	hydrationMessages?: AgentMessage[];
 }
 
 /**

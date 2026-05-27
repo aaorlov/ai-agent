@@ -3,7 +3,6 @@ import type { MessagesEventData, UpdatesEventData } from "@langchain/langgraph";
 import { HttpStatus } from "@/common/enums";
 import { AppError, HttpError, toErrorMessage } from "@/common/errors";
 import {
-	type AgentMessage,
 	type AgentRunInput,
 	type AgentState,
 	buildExpiredToolMessages,
@@ -11,8 +10,10 @@ import {
 	findOrphanToolCalls,
 	getCheckpointState,
 	hasCheckpoint,
+	isCheckpointHealthy,
 	MAX_HISTORY_MESSAGES,
 	MessageRole,
+	newHumanMessage,
 	streamAgent,
 } from "@/modules/agent";
 
@@ -55,7 +56,8 @@ export const deleteThread = async (userId: string, threadId: string): Promise<vo
 
 /**
  * Streams a thread turn as SSE-shaped events. Owns the full agent run:
- * prepares input (with hydration / interrupt recovery), invokes the graph,
+ * prepares input (restoring working memory from the persisted history when
+ * the checkpoint is missing or unsafe to resume), invokes the graph,
  * persists every produced message, and yields events for the protocol layer
  * to serialize. Errors are translated into terminal `Error` + `Finish`
  * events so the consumer always sees a clean termination.
@@ -122,64 +124,50 @@ export async function* streamThreadEvents(
 // Private helpers
 // -----------------------------------------------------------------------------
 
-const newHumanMessage = (content: string): AgentMessage => ({
-	id: crypto.randomUUID(),
-	role: MessageRole.Human,
-	content,
-	createdAt: new Date().toISOString(),
-});
-
 /**
- * Builds `AgentRunInput` for a new user message. Side-effects:
- *  - resets the LangGraph checkpoint if it carries an unresolved interrupt
- *    or orphaned assistant tool calls (the only reliable way to drop
- *    `interrupt()` state — `updateState` doesn't always cancel it);
- *  - persists synthetic `Expired` tool messages for any orphaned calls so
- *    the next LLM call sees valid `tool_use`/`tool_result` pairing;
- *  - persists the incoming human message to the thread log.
+ * Builds `AgentRunInput` for a new user message. Two paths:
  *
- * Returns hydration messages so `toGraphInput` rebuilds working memory
- * for fresh / reset threads.
+ *  1. Healthy checkpoint present → append only the new human message; the
+ *     graph reducer concatenates it onto the live state.
+ *  2. No checkpoint, or one that's unsafe to resume (pending interrupt or an
+ *     assistant tool call missing its `tool_result`) → drop the checkpoint,
+ *     restore working memory from the persisted history, close out any
+ *     orphan tool calls with synthetic `Expired` results, and seed the graph
+ *     with `[...history, ...expired, newHuman]` in one shot.
+ *
+ * The persisted message log is the canonical history. The checkpoint is a
+ * pure performance optimization — when missing (new thread / TTL expired)
+ * we transparently rebuild it from history on the next turn.
  */
 const prepareMessageInput = async (
 	userId: string,
 	threadId: string,
 	body: SendMessageRequest,
 ): Promise<AgentRunInput> => {
+	const humanMessage = newHumanMessage(body.content);
 	const checkpointState = await getCheckpointState(threadId);
-	const checkpointPresent = checkpointState !== null;
 
-	const hasPendingInterrupt = (checkpointState?.pendingTools.length ?? 0) > 0;
-	const checkpointHasOrphans = findOrphanToolCalls(checkpointState?.messages ?? []).length > 0;
-	const mustResetCheckpoint = hasPendingInterrupt || checkpointHasOrphans;
+	if (isCheckpointHealthy(checkpointState)) {
+		await appendMessage(userId, threadId, humanMessage);
+		return { userId, threadId, messages: [humanMessage] };
+	}
 
-	if (mustResetCheckpoint) {
+	if (checkpointState !== null) {
 		await deleteCheckpoint(threadId);
 	}
 
-	const useExistingCheckpoint = checkpointPresent && !mustResetCheckpoint;
-	const baseline =
-		useExistingCheckpoint && checkpointState
-			? checkpointState.messages
-			: await getRecentMessages(userId, threadId, MAX_HISTORY_MESSAGES);
+	const history = await getRecentMessages(userId, threadId, MAX_HISTORY_MESSAGES);
+	const expired = buildExpiredToolMessages(findOrphanToolCalls(history));
 
-	const expired = buildExpiredToolMessages(findOrphanToolCalls(baseline));
 	if (expired.length > 0) {
 		await appendMessages(userId, threadId, expired);
 	}
-
-	const humanMessage = newHumanMessage(body.content);
 	await appendMessage(userId, threadId, humanMessage);
-
-	const hydrationMessages: AgentMessage[] = useExistingCheckpoint
-		? expired
-		: [...baseline, ...expired];
 
 	return {
 		userId,
 		threadId,
-		messages: [humanMessage],
-		hydrationMessages,
+		messages: [...history, ...expired, humanMessage],
 	};
 };
 

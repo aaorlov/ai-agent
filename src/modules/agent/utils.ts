@@ -8,8 +8,15 @@ import {
 import { Command } from "@langchain/langgraph";
 
 import { MessageRole } from "./enums";
-import type { AgentMessage, AgentRunInput } from "./types";
+import type { AgentMessage, HumanMessage as HumanAgentMessage, AgentRunInput } from "./types";
 
+/** Factory for a freshly-stamped human turn message. */
+export const newHumanMessage = (content: string): HumanAgentMessage => ({
+	id: crypto.randomUUID(),
+	role: MessageRole.Human,
+	content,
+	createdAt: new Date().toISOString(),
+});
 
 export const toLangChainMessage = (message: AgentMessage): BaseMessage => {
 	switch (message.role) {
@@ -49,13 +56,12 @@ export interface GraphInvocation {
  *   prior input.
  * - `resume` -> `Command({ resume })`: provides the human-in-the-loop value to
  *   an `interrupt()` call.
- * - default -> initial state with appended messages.
+ * - default -> partial state with `messages` to append. The caller decides
+ *   whether the array is just the new turn input or also includes restored
+ *   history (when no checkpoint exists). The reducer caps + trims either way.
  */
 export const toGraphInput = (input: AgentRunInput): GraphInvocation | Command | null => {
 	if (input.retry) return null;
 	if (input.resume) return new Command({ resume: input.resume });
-	return {
-		messages: [...(input.hydrationMessages ?? []), ...input.messages],
-		pendingTools: [],
-	};
+	return { messages: input.messages, pendingTools: [] };
 };

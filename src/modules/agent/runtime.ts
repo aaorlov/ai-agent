@@ -11,13 +11,30 @@ export const hasCheckpoint = async (threadId: string): Promise<boolean> => {
 
 /**
  * Returns the latest committed state values for a thread, or `null` if no
- * checkpoint exists. Used by the threads layer to inspect pending tools and
- * unresolved tool calls before starting a new turn.
+ * checkpoint exists. Used by the threads layer to decide whether a stored
+ * checkpoint can be reused as-is or must be discarded and re-seeded from the
+ * persisted message log.
  */
 export const getCheckpointState = async (threadId: string): Promise<AgentState | null> => {
 	const snapshot = await agentGraph.getState({ configurable: { thread_id: threadId } });
 	if (snapshot.config.configurable?.checkpoint_id == null) return null;
 	return snapshot.values as AgentState;
+};
+
+/**
+ * A checkpoint is "healthy" when the next turn can resume on top of it without
+ * extra surgery:
+ *  - no `interrupt()` is pending (abandoned approval would resurface mid-run);
+ *  - no assistant tool call is missing its `tool_result` (Anthropic rejects
+ *    the next LLM call on a mismatched `tool_use` / `tool_result` pair).
+ *
+ * Unhealthy checkpoints must be dropped and rebuilt from the persisted history.
+ */
+export const isCheckpointHealthy = (state: AgentState | null): state is AgentState => {
+	if (state === null) return false;
+	if (state.pendingTools.length > 0) return false;
+	if (findOrphanToolCalls(state.messages).length > 0) return false;
+	return true;
 };
 
 /**

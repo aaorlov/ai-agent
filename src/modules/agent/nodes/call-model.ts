@@ -29,8 +29,35 @@ const toLangChainHistory = (state: AgentState): BaseMessage[] => {
 	return history;
 };
 
-const extractContent = (message: AIMessage): string =>
-	typeof message.content === "string" ? message.content : JSON.stringify(message.content);
+/**
+ * Type guard for an LLM content block carrying spoken text.
+ * Provider-side content arrays mix text blocks with `tool_use`, `thinking`,
+ * and other provider-specific shapes; only `text` blocks contribute to the
+ * user-visible message body.
+ */
+const isTextContentBlock = (block: unknown): block is { type: "text"; text: string } =>
+	typeof block === "object"
+	&& block !== null
+	&& "type" in block
+	&& block.type === "text"
+	&& "text" in block
+	&& typeof block.text === "string";
+
+/**
+ * Reduces an `AIMessage` to its plain-text body.
+ *
+ * Anthropic returns content as either a string or an array of content blocks
+ * (text, tool_use, thinking, …). Tool calls are captured separately in
+ * `extractToolCalls`, so here we keep only the text blocks and concatenate
+ * them. This produces a stable, UI-friendly string regardless of provider
+ * shape, and avoids leaking JSON envelopes into the persisted history.
+ */
+const extractContent = (message: AIMessage): string => {
+	const content = message.content;
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content.filter(isTextContentBlock).map((block) => block.text).join("");
+};
 
 const extractToolCalls = (message: AIMessage): ToolCall[] | undefined => {
 	if (!message.tool_calls?.length) return undefined;

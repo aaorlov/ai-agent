@@ -10,7 +10,9 @@ export {
 	findOrphanToolCalls,
 	getCheckpointState,
 	hasCheckpoint,
+	isCheckpointHealthy,
 } from "./runtime";
+export { newHumanMessage } from "./utils";
 
 export { type AgentState, AgentStateAnnotation } from "./state";
 export { deleteCheckpoint, initAgent } from "./store";

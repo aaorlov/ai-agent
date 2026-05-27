@@ -136,8 +136,9 @@ export const deleteThreadMessages = async (
 
 /**
  * Returns the most recent `limit` messages of a thread in chronological
- * order (oldest first). Used by the agent runtime to rehydrate working
- * memory when the checkpoint TTL has expired.
+ * order (oldest first). Used by the threads layer to restore agent working
+ * memory whenever the LangGraph checkpoint is missing (new thread, TTL
+ * expired, or discarded after a pending interrupt).
  */
 export const getRecentMessages = async (
 	userId: string,
