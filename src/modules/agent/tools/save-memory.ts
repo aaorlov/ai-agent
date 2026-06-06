@@ -52,6 +52,8 @@ const evictOldestIfFull = async (
 	);
 };
 
+export const SAVE_MEMORY_TOOL_NAME = "save_memory";
+
 /**
  * Subset of `LangGraphRunnableConfig` that the tool actually depends on.
  * Declared as a structural supertype so it satisfies `tool()`'s overload
@@ -96,7 +98,7 @@ export const saveMemoryTool = tool(
 		return "Saved to long-term memory.";
 	},
 	{
-		name: "save_memory",
+		name: SAVE_MEMORY_TOOL_NAME,
 		description:
 			"Persist a piece of general information to the user's long-term memory so it can be recalled in future conversations across any topic. Use this when the user shares a stable preference, fact, or instruction worth remembering across sessions. Do not use for transient context that only matters within the current thread. Storage is capped per user; the oldest entry is evicted when full.",
 		schema: SaveMemoryInputSchema,

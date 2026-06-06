@@ -1,4 +1,5 @@
 import type { MessageRole, ToolAction } from "./enums";
+import type { Plan } from "./tools/manage-plan";
 
 interface MessageBase {
 	id: string;
@@ -70,12 +71,15 @@ export interface AgentResume {
  * In the default mode `messages` is whatever the graph reducer should see for
  * this turn. The caller decides whether to pass just the new human message
  * (healthy checkpoint exists) or to also re-seed prior history (no checkpoint
- * yet — restored from the persisted message log).
+ * yet — restored from the persisted message log). When reseeding, callers
+ * may also supply `plan` so the graph picks up the last known plan instead
+ * of starting from `null`.
  */
 export interface AgentRunInput {
 	userId: string;
 	threadId: string;
 	messages: AgentMessage[];
+	plan?: Plan | null;
 	resume?: AgentResume;
 	retry?: boolean;
 }

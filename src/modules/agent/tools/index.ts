@@ -1,11 +1,28 @@
 import type { StructuredToolInterface } from "@langchain/core/tools";
 
-import { saveMemoryTool } from "./save-memory";
+import { MANAGE_PLAN_TOOL_NAME, managePlanTool } from "./manage-plan";
+import { SAVE_MEMORY_TOOL_NAME, saveMemoryTool } from "./save-memory";
 
-export { saveMemoryTool };
+export {
+	MANAGE_PLAN_TOOL_NAME,
+	managePlanTool,
+	SAVE_MEMORY_TOOL_NAME,
+	saveMemoryTool,
+};
+export {
+	applyPlanUpdate,
+	extractPlanFromToolMessage,
+	findLatestPlan,
+	type Plan,
+	type PlanStep,
+	type PlanStepPatch,
+	PlanStepStatus,
+	type PlanUpdate,
+	renderPlanChecklist,
+} from "./manage-plan";
 
 /** All tools the LLM is allowed to call. Bound to the model in `llm.ts`. */
-export const TOOLS: readonly StructuredToolInterface[] = [saveMemoryTool];
+export const TOOLS: readonly StructuredToolInterface[] = [saveMemoryTool, managePlanTool];
 
 /** Lookup by tool name for the executor node. */
 export const TOOLS_BY_NAME: ReadonlyMap<string, StructuredToolInterface> = new Map(

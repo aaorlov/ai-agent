@@ -2,6 +2,7 @@ import { Annotation } from "@langchain/langgraph";
 
 import { MAX_HISTORY_MESSAGES } from "./constants";
 import { MessageRole } from "./enums";
+import type { Plan } from "./tools/manage-plan";
 import type { AgentMessage, PendingTool, RetrievedDocument } from "./types";
 
 /**
@@ -63,6 +64,19 @@ export const AgentStateAnnotation = Annotation.Root({
 	longTermMemories: Annotation<string[]>({
 		reducer: (_, right) => right ?? [],
 		default: () => [],
+	}),
+
+	/**
+	 * Authoritative resolved plan for this thread. Written by `execute_tool`
+	 * (and `request_approval`) when a `manage_plan` call succeeds; read by
+	 * `call_model` to render the plan's `<system-reminder>`. Independent of
+	 * `messages` so the plan survives history trimming. The matching
+	 * `manage_plan` tool messages are preserved in `messages` for the UI's
+	 * audit trail but are filtered out of the prompt sent to the LLM.
+	 */
+	plan: Annotation<Plan | null>({
+		reducer: (left, right) => (right === undefined ? left : right),
+		default: () => null,
 	}),
 });
 

@@ -8,6 +8,7 @@ import {
 import { Command } from "@langchain/langgraph";
 
 import { MessageRole } from "./enums";
+import type { Plan } from "./tools/manage-plan";
 import type { AgentMessage, HumanMessage as HumanAgentMessage, AgentRunInput } from "./types";
 
 /** Factory for a freshly-stamped human turn message. */
@@ -45,6 +46,7 @@ export const toLangChainMessage = (message: AgentMessage): BaseMessage => {
 export interface GraphInvocation {
 	messages: AgentMessage[];
 	pendingTools: never[];
+	plan?: Plan | null;
 }
 
 /**
@@ -58,10 +60,17 @@ export interface GraphInvocation {
  *   an `interrupt()` call.
  * - default -> partial state with `messages` to append. The caller decides
  *   whether the array is just the new turn input or also includes restored
- *   history (when no checkpoint exists). The reducer caps + trims either way.
+ *   history (when no checkpoint exists). When reseeding, the caller may also
+ *   pass `plan` so the graph picks up the last known plan; otherwise the
+ *   channel keeps its current value (the reducer treats `undefined` as
+ *   no-op).
  */
 export const toGraphInput = (input: AgentRunInput): GraphInvocation | Command | null => {
 	if (input.retry) return null;
 	if (input.resume) return new Command({ resume: input.resume });
-	return { messages: input.messages, pendingTools: [] };
+	return {
+		messages: input.messages,
+		pendingTools: [],
+		...(input.plan !== undefined ? { plan: input.plan } : {}),
+	};
 };

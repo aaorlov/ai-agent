@@ -29,3 +29,10 @@ export const MAX_HISTORY_MESSAGES = 30;
  * prompt cost.
  */
 export const MAX_MEMORIES_PER_USER = 20;
+
+/**
+ * Upper bound on plan steps the planner is allowed to emit per turn. Keeps
+ * the plan compact for the UI and prevents the planner LLM from producing
+ * runaway todo lists for a single user request.
+ */
+export const MAX_PLAN_STEPS = 7;

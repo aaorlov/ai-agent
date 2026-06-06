@@ -4,8 +4,14 @@ import { END } from "@langchain/langgraph";
 import { AgentNode, MessageRole } from "../enums";
 import { llm } from "../llm";
 import type { AgentState } from "../state";
-import { TOOLS_REQUIRING_APPROVAL } from "../tools";
-import type { AssistantMessage, ToolCall } from "../types";
+import {
+	MANAGE_PLAN_TOOL_NAME,
+	type Plan,
+	PlanStepStatus,
+	renderPlanChecklist,
+	TOOLS_REQUIRING_APPROVAL,
+} from "../tools";
+import type { AgentMessage, AssistantMessage, ToolCall } from "../types";
 import { toLangChainMessage } from "../utils";
 
 const renderMemoriesSystemMessage = (memories: readonly string[]): SystemMessage =>
@@ -15,6 +21,74 @@ const renderMemoriesSystemMessage = (memories: readonly string[]): SystemMessage
 			.join("\n")}`,
 	});
 
+const TERMINAL_PLAN_STATUSES: ReadonlySet<PlanStepStatus> = new Set([
+	PlanStepStatus.Completed,
+	PlanStepStatus.Cancelled,
+]);
+
+const isPlanFinished = (plan: Plan): boolean =>
+	plan.steps.length > 0
+	&& plan.steps.every((step) => TERMINAL_PLAN_STATUSES.has(step.status));
+
+/**
+ * Renders the active plan as a system reminder. While work is in flight the
+ * full checklist is shipped so the model can see what's pending. Once every
+ * step is terminal (completed/cancelled), we collapse to a one-liner — no
+ * point burning tokens redrawing finished work each turn — and nudge the
+ * model to start a fresh plan with `merge=false` if the next request is a
+ * new task.
+ */
+const renderPlanSystemMessage = (plan: Plan): SystemMessage => {
+	const goal = plan.goal ? ` for "${plan.goal}"` : "";
+	const body = isPlanFinished(plan)
+		? `Previous plan${goal} finished (${plan.steps.length} step(s) resolved). If the next request is a new task, call \`manage_plan\` with merge=false to start a fresh plan.`
+		: `Active plan (keep statuses up to date via the \`manage_plan\` tool):\n${renderPlanChecklist(plan)}`;
+	return new SystemMessage({ content: `<system-reminder>\n${body}\n</system-reminder>` });
+};
+
+/**
+ * Drops `manage_plan` tool calls and their tool-result messages from the
+ * conversation we ship to the LLM. The model already gets the resolved plan
+ * via the `<system-reminder>` block, so the per-call audit trail is
+ * redundant context cost. The originals stay in `state.messages` for the
+ * UI/audit log.
+ *
+ * Edge cases handled:
+ *  - assistant message with mixed tool calls: keep the message, strip just
+ *    the `manage_plan` entries; the matching tool messages are also dropped
+ *    so Anthropic's tool_use/tool_result pairing stays balanced.
+ *  - assistant message whose only tool calls were `manage_plan` and whose
+ *    text body is empty: drop the message entirely.
+ */
+const stripPlanInteractions = (messages: readonly AgentMessage[]): AgentMessage[] => {
+	const planCallIds = new Set<string>();
+	for (const message of messages) {
+		if (message.role === MessageRole.Assistant && message.toolCalls) {
+			for (const call of message.toolCalls) {
+				if (call.toolName === MANAGE_PLAN_TOOL_NAME) planCallIds.add(call.toolCallId);
+			}
+		}
+	}
+
+	const result: AgentMessage[] = [];
+	for (const message of messages) {
+		if (message.role === MessageRole.Tool && planCallIds.has(message.toolCallId)) {
+			continue;
+		}
+		if (message.role === MessageRole.Assistant && message.toolCalls?.length) {
+			const remaining = message.toolCalls.filter(
+				(call) => call.toolName !== MANAGE_PLAN_TOOL_NAME,
+			);
+			if (message.content || remaining.length > 0) {
+				result.push({...message, toolCalls: remaining});
+			}
+			continue;
+		}
+		result.push(message);
+	}
+	return result;
+};
+
 const toLangChainHistory = (state: AgentState): BaseMessage[] => {
 	const history: BaseMessage[] = [];
 	if (state.systemPrompt) {
@@ -23,7 +97,10 @@ const toLangChainHistory = (state: AgentState): BaseMessage[] => {
 	if (state.longTermMemories.length > 0) {
 		history.push(renderMemoriesSystemMessage(state.longTermMemories));
 	}
-	for (const message of state.messages) {
+	if (state.plan) {
+		history.push(renderPlanSystemMessage(state.plan));
+	}
+	for (const message of stripPlanInteractions(state.messages)) {
 		history.push(toLangChainMessage(message));
 	}
 	return history;

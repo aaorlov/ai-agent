@@ -7,6 +7,7 @@ import {
 	type AgentState,
 	buildExpiredToolMessages,
 	deleteCheckpoint,
+	findLatestPlan,
 	findOrphanToolCalls,
 	getCheckpointState,
 	hasCheckpoint,
@@ -164,10 +165,17 @@ const prepareMessageInput = async (
 	}
 	await appendMessage(userId, threadId, humanMessage);
 
+	// The plan channel defaults to `null` on a fresh state; without seeding
+	// it from history the agent would forget any plan it had set before the
+	// checkpoint was lost. Pass `null` (not `undefined`) when no plan is
+	// found, so the channel reducer explicitly resets it.
+	const plan = findLatestPlan(history) ?? null;
+
 	return {
 		userId,
 		threadId,
 		messages: [...history, ...expired, humanMessage],
+		plan,
 	};
 };
 

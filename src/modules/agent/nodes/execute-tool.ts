@@ -2,6 +2,7 @@ import type { LangGraphRunnableConfig } from "@langchain/langgraph";
 
 import { MessageRole } from "../enums";
 import type { AgentState } from "../state";
+import { findLatestPlan } from "../tools";
 import type { AgentMessage, AssistantMessage } from "../types";
 import { runTool } from "./utils";
 
@@ -40,5 +41,6 @@ export const executeTool = async (
 	if (calls.length === 0) return {};
 
 	const messages = await Promise.all(calls.map((call) => runTool(call, config)));
-	return { messages };
+	const plan = findLatestPlan(messages);
+	return { messages, ...(plan !== undefined ? { plan } : {}) };
 };

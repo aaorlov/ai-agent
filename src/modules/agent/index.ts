@@ -16,6 +16,19 @@ export { newHumanMessage } from "./utils";
 
 export { type AgentState, AgentStateAnnotation } from "./state";
 export { deleteCheckpoint, initAgent } from "./store";
+export {
+	applyPlanUpdate,
+	extractPlanFromToolMessage,
+	findLatestPlan,
+	MANAGE_PLAN_TOOL_NAME,
+	type Plan,
+	type PlanStep,
+	type PlanStepPatch,
+	PlanStepStatus,
+	type PlanUpdate,
+	renderPlanChecklist,
+	SAVE_MEMORY_TOOL_NAME,
+} from "./tools";
 export type {
 	AgentMessage,
 	AgentResume,
